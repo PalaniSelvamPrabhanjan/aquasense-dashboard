@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AquaSense Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1>AquaSense  Dashboard</h1>
+            <p class="subtitle">Smart Aquarium Monitoring System</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Section 1: Tank Overview & Settings -->
+        <section class="tank-overview">
+            <div class="section-header">
+                <h2>Tank Overview</h2>
+                <button class="btn-settings" onclick="openSettingsModal()">
+                    <i class="fas fa-cog"></i> Settings
+                </button>
+            </div>
+            
+            <div class="tank-info-grid">
+                <div class="info-card">
+                    <label>Tank Volume</label>
+                    <div class="value" id="tankVolume">Loading...</div>
+                    <span class="unit">liters</span>
+                </div>
+                <div class="info-card">
+                    <label>Target Water Level</label>
+                    <div class="value" id="targetWaterLevel">Loading...</div>
+                    <span class="unit">%</span>
+                </div>
+                <div class="info-card fish-count">
+                    <label>Fish Count</label>
+                    <div class="fish-breakdown" id="fishBreakdown">
+                        <div class="fish-size">
+                            <span class="fish-label">Small:</span>
+                            <span class="fish-value" id="fishSmall">-</span>
+                        </div>
+                        <div class="fish-size">
+                            <span class="fish-label">Medium:</span>
+                            <span class="fish-value" id="fishMedium">-</span>
+                        </div>
+                        <div class="fish-size">
+                            <span class="fish-label">Large:</span>
+                            <span class="fish-value" id="fishLarge">-</span>
+                        </div>
+                        <div class="fish-size">
+                            <span class="fish-label">Extra Large:</span>
+                            <span class="fish-value" id="fishExtraLarge">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+
+        <!-- Section 3: Water Quality Charts -->
+        <section class="charts-section">
+            <div class="section-header">
+                <h2>Water Quality Monitoring</h2>
+                <div class="timeline-control">
+                    <label for="timelineSelect">Timeline:</label>
+                    <select id="timelineSelect" class="timeline-dropdown" onchange="selectTimeline(this.value)">
+                        <option value="day" selected>1 Day</option>
+                        <option value="week">1 Week</option>
+                        <option value="month">1 Month</option>
+                    </select>
+                </div>
+            </div>
+            <div class="charts-grid">
+                <!-- Temperature Chart -->
+                <div class="chart-container">
+                    <h3>Temperature (°C)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="temperatureChart"></canvas>
+                        <div class="chart-placeholder" id="temperaturePlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- pH Chart -->
+                <div class="chart-container">
+                    <h3>pH Level</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="phChart"></canvas>
+                        <div class="chart-placeholder" id="phPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ammonia Chart with Prediction Panel -->
+                <div class="ammonia-row">
+                    <div class="chart-container">
+                        <h3>Ammonia (ppm)</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="ammoniaChart"></canvas>
+                            <div class="chart-placeholder" id="ammoniaPlaceholder">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <p>Data unavailable – check connection</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Section 4: Ammonia Prediction Panel -->
+                    <div class="prediction-panel">
+                        <h3>Predicted End-of-Day Ammonia</h3>
+                        <div class="prediction-display">
+                            <div class="prediction-value" id="predictedAmmonia">0.48</div>
+                            <span class="prediction-unit">ppm</span>
+                        </div>
+                        <div class="prediction-status" id="predictionStatus">
+                            <span class="status-indicator safe"></span>
+                            <span class="status-text">Safe</span>
+                        </div>
+                        <p class="prediction-note">
+                            <!-- TODO: Replace with SageMaker ML endpoint integration -->
+                            <i class="fas fa-info-circle"></i>
+                            Prediction model placeholder - SageMaker integration pending
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Water Level Chart -->
+                <div class="chart-container">
+                    <h3>Water Level (%)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="waterLevelChart"></canvas>
+                        <div class="chart-placeholder" id="waterLevelPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading Indicator -->
+        <div class="loading-indicator" id="loadingIndicator">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading data...</span>
+        </div>
+    </main>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Tank Settings</h2>
+                <button class="modal-close" onclick="closeSettingsModal()">&times;</button>
+            </div>
+            
+            <form class="settings-form" id="settingsForm" onsubmit="saveSettings(event)">
+                <div class="form-group">
+                    <label for="volumeInput">Tank Volume (liters)</label>
+                    <input type="number" id="volumeInput" min="1" max="10000" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="targetLevelInput">Target Water Level (%)</label>
+                    <input type="number" id="targetLevelInput" min="1" max="100" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Number of Fish</label>
+                    <div class="fish-inputs">
+                        <div class="fish-input-group">
+                            <label for="fishSmallInput">Small</label>
+                            <input type="number" id="fishSmallInput" min="0" max="100" required>
+                        </div>
+                        <div class="fish-input-group">
+                            <label for="fishMediumInput">Medium</label>
+                            <input type="number" id="fishMediumInput" min="0" max="100" required>
+                        </div>
+                        <div class="fish-input-group">
+                            <label for="fishLargeInput">Large</label>
+                            <input type="number" id="fishLargeInput" min="0" max="100" required>
+                        </div>
+                        <div class="fish-input-group">
+                            <label for="fishExtraLargeInput">Extra Large</label>
+                            <input type="number" id="fishExtraLargeInput" min="0" max="100" required>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeSettingsModal()">Cancel</button>
+                    <button type="submit" class="btn-save">Save Settings</button>
+                </div>
+            </form>
+            
+            <div class="message" id="settingsMessage"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
