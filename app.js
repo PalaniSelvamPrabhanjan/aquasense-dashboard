@@ -78,15 +78,6 @@ document.addEventListener("DOMContentLoaded", function () {
   initializeApplication();
   setupFeederForm();
   
-  // Setup modal click-outside handler safely
-  const modal = document.getElementById("settingsModal");
-  if (modal) {
-    modal.addEventListener("click", function (event) {
-      if (event.target === this) {
-        closeSettingsModal();
-      }
-    });
-  }
 });
 
 /**
@@ -96,35 +87,31 @@ async function initializeApplication() {
   try {
     // Only load tank profile and sensor data on relevant pages
     const promises = [];
-    
+
     if (currentPage === "overview" || currentPage === "monitoring") {
       promises.push(loadTankProfile());
     }
-    
+
     if (currentPage === "monitoring") {
       promises.push(loadSensorData());
     }
-    
-    if (currentPage === "overview") {
-      promises.push(loadTankProfile());
-    }
-    
+
     if (currentPage === "feeding") {
       promises.push(loadFeedingEvents());
     }
-    
+
     await Promise.all(promises);
-    
+
     // Only update prediction panel on relevant pages
     if (currentPage === "feeding" || currentPage === "overview") {
       updatePredictionPanel();
     }
-    
+
     // Only start auto-refresh on monitoring page
     if (currentPage === "monitoring") {
       startAutoRefresh();
     }
-    
+
     console.log("✅ AquaScope Dashboard initialized successfully");
   } catch (error) {
     console.error("❌ Failed to initialize dashboard:", error);
@@ -450,22 +437,35 @@ function openSettingsModal() {
   const fishLarge = profile.fish_large ?? profile.fish_count?.large ?? 0;
   const fishXLarge = profile.fish_xlarge ?? profile.fish_count?.extra_large ?? 0;
 
-  document.getElementById("volumeInput").value = volume;
-  document.getElementById("targetLevelInput").value = appropriateLevel;
-  document.getElementById("fishSmallInput").value = fishSmall;
-  document.getElementById("fishMediumInput").value = fishMedium;
-  document.getElementById("fishLargeInput").value = fishLarge;
-  document.getElementById("fishExtraLargeInput").value = fishXLarge;
-
+  const volumeInput = document.getElementById("volumeInput");
+  const levelInput = document.getElementById("targetLevelInput");
+  const fishSmallInput = document.getElementById("fishSmallInput");
+  const fishMediumInput = document.getElementById("fishMediumInput");
+  const fishLargeInput = document.getElementById("fishLargeInput");
+  const fishExtraLargeInput = document.getElementById("fishExtraLargeInput");
   const message = document.getElementById("settingsMessage");
-  message.className = "message";
-  message.textContent = "";
+  const modal = document.getElementById("settingsModal");
 
-  document.getElementById("settingsModal").classList.add("show");
+  if (!modal || !volumeInput || !levelInput) return;
+
+  volumeInput.value = volume;
+  levelInput.value = appropriateLevel;
+  if (fishSmallInput) fishSmallInput.value = fishSmall;
+  if (fishMediumInput) fishMediumInput.value = fishMedium;
+  if (fishLargeInput) fishLargeInput.value = fishLarge;
+  if (fishExtraLargeInput) fishExtraLargeInput.value = fishXLarge;
+
+  if (message) {
+    message.className = "message";
+    message.textContent = "";
+  }
+
+  modal.classList.add("show");
 }
 
 function closeSettingsModal() {
-  document.getElementById("settingsModal").classList.remove("show");
+  const modal = document.getElementById("settingsModal");
+  if (modal) modal.classList.remove("show");
 }
 
 /**
@@ -725,14 +725,26 @@ function showFeederMessage(text, type) {
 async function saveSettings(event) {
   event.preventDefault();
 
+  const volumeInput = document.getElementById("volumeInput");
+  const levelInput = document.getElementById("targetLevelInput");
+  const fishSmallInput = document.getElementById("fishSmallInput");
+  const fishMediumInput = document.getElementById("fishMediumInput");
+  const fishLargeInput = document.getElementById("fishLargeInput");
+  const fishExtraLargeInput = document.getElementById("fishExtraLargeInput");
+
+  if (!volumeInput || !levelInput || !fishSmallInput || !fishMediumInput || !fishLargeInput || !fishExtraLargeInput) {
+    console.warn("⚠️ Settings form inputs not found on this page.");
+    return;
+  }
+
   const settings = {
     tank_id: "tank_001",
-    tank_volume_liters: parseInt(document.getElementById("volumeInput").value, 10),
-    appropriate_water_level: parseInt(document.getElementById("targetLevelInput").value, 10),
-    fish_small: parseInt(document.getElementById("fishSmallInput").value, 10),
-    fish_medium: parseInt(document.getElementById("fishMediumInput").value, 10),
-    fish_large: parseInt(document.getElementById("fishLargeInput").value, 10),
-    fish_xlarge: parseInt(document.getElementById("fishExtraLargeInput").value, 10),
+    tank_volume_liters: parseInt(volumeInput.value, 10),
+    appropriate_water_level: parseInt(levelInput.value, 10),
+    fish_small: parseInt(fishSmallInput.value, 10),
+    fish_medium: parseInt(fishMediumInput.value, 10),
+    fish_large: parseInt(fishLargeInput.value, 10),
+    fish_xlarge: parseInt(fishExtraLargeInput.value, 10),
     updated_at: new Date().toISOString(),
   };
 
@@ -768,6 +780,7 @@ async function saveSettings(event) {
 
 function showSettingsMessage(text, type) {
   const message = document.getElementById("settingsMessage");
+  if (!message) return;
   message.textContent = text;
   message.className = `message ${type}`;
 }
@@ -778,11 +791,15 @@ function showSettingsMessage(text, type) {
 function updatePredictionPanel() {
   const predictedValue = getPredictedAmmonia();
 
-  document.getElementById("predictedAmmonia").textContent = predictedValue.toFixed(2);
-
+  const predictedEl = document.getElementById("predictedAmmonia");
   const statusElement = document.getElementById("predictionStatus");
+  if (!predictedEl || !statusElement) return;
+
   const indicator = statusElement.querySelector(".status-indicator");
   const text = statusElement.querySelector(".status-text");
+  if (!indicator || !text) return;
+
+  predictedEl.textContent = predictedValue.toFixed(2);
 
   if (predictedValue <= 0.25) {
     indicator.className = "status-indicator safe";
@@ -805,7 +822,7 @@ function getPredictedAmmonia() {
  */
 async function loadFeedingEvents() {
   try {
-    const response = await fetch(`${API_BASE}/feeding-events?tank_id=tank_001`);
+    const response = await fetch(`${API_BASE}/feeding-events?tank_id=tank_001&device_id=aquasense_01`);
 
     if (!response.ok) {
       throw new Error(`Feeding events API error: ${response.status}`);
@@ -861,8 +878,11 @@ function renderFeedingHistory(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      const timestamp = new Date(event.created_at || event.timestamp);
-      const formattedTimestamp = timestamp.toISOString().replace("T", " ").substring(0, 19);
+      const timestampValue = event.created_at || event.timestamp;
+      const timestamp = timestampValue ? new Date(timestampValue) : null;
+      const formattedTimestamp = timestamp && !isNaN(timestamp)
+        ? timestamp.toISOString().replace("T", " ").substring(0, 19)
+        : "N/A";
       const feedTime = event.feed_time || event.feed_time_iso || "N/A";
       const quantity = event.quantity_grams ?? event.quantity ?? "N/A";
       const deviceId = event.device_id || "aquasense_01";
@@ -981,9 +1001,12 @@ document.addEventListener("keydown", function (event) {
 });
 
 // Click outside modal to close
-document.getElementById("settingsModal").addEventListener("click", function (event) {
-  if (event.target === this) closeSettingsModal();
-});
+const modalEl = document.getElementById("settingsModal");
+if (modalEl) {
+  modalEl.addEventListener("click", function (event) {
+    if (event.target === this) closeSettingsModal();
+  });
+}
 
 /**
  * Responsive chart handling
@@ -1005,5 +1028,11 @@ window.AquaScope = {
   saveSettings,
   getPredictedAmmonia,
 };
+
+// Direct global access for inline handlers
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+window.saveSettings = saveSettings;
+window.refreshFeedingHistory = refreshFeedingHistory;
 
 console.log("AquaScope Dashboard JavaScript loaded successfully");

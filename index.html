@@ -25,8 +25,27 @@
         </div>
     </header>
 
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="index.html" class="nav-link">Overview</a>
+            <a href="monitoring.html" class="nav-link">Water Quality</a>
+            <a href="feeding.html" class="nav-link">Feeding</a>
+        </div>
+    </nav>
+
     <main class="container">
-        <!-- Section 1: Tank Overview & Settings -->
+        <!-- Section 1: Alerts -->
+        <section class="alerts-section">
+            <h2>Alerts</h2>
+            <div id="alertsList" class="alerts-list">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Loading alerts...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Tank Overview & Settings -->
         <section class="tank-overview">
             <div class="section-header">
                 <h2>Tank Overview</h2>
@@ -69,128 +88,6 @@
                 </div>
             </div>
         </section>
-
-        <!-- Section 2: Auto Feeder & Prediction -->
-        <section class="feeder-prediction-section">
-            <h2>Auto Feeder & Status</h2>
-            <div class="feeder-prediction-row">
-                <!-- Auto Feeder -->
-                <div class="auto-feeder-card">
-                    <h3>Auto Feeder Schedule</h3>
-                    <form id="feederForm">
-                        <div class="form-group">
-                            <label for="feederTime">Feed Time</label>
-                            <input type="time" id="feederTime" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="feederQty">Quantity (grams)</label>
-                            <input type="number" id="feederQty" min="0" max="10" step="0.5" required>
-                        </div>
-                        <button type="submit" class="btn-primary">Schedule Feed</button>
-                        <div id="feederMessage" class="message"></div>
-                    </form>
-                </div>
-
-                <!-- Prediction Panel -->
-                <div class="prediction-panel-standalone">
-                    <h3>Predicted End-of-Day Ammonia</h3>
-                    <div class="prediction-display">
-                        <div class="prediction-value" id="predictedAmmonia">0.48</div>
-                        <span class="prediction-unit">ppm</span>
-                    </div>
-                    <div class="prediction-status" id="predictionStatus">
-                        <span class="status-indicator safe"></span>
-                        <span class="status-text">Safe</span>
-                    </div>
-                    <p class="prediction-note">
-                        <i class="fas fa-info-circle"></i>
-                        Prediction model placeholder - SageMaker integration pending
-                    </p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 3: Alerts -->
-        <section class="alerts-section">
-            <h2>System Alerts</h2>
-            <div id="alertsList" class="alerts-list">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i>
-                    <span>Loading alerts...</span>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 4: Water Quality Charts -->
-        <section class="charts-section">
-            <div class="section-header">
-                <h2>Water Quality Monitoring</h2>
-                <div class="timeline-control">
-                    <label for="timelineSelect">Timeline:</label>
-                    <select id="timelineSelect" class="timeline-dropdown" onchange="selectTimeline(this.value)">
-                        <option value="day" selected>1 Day</option>
-                        <option value="week">1 Week</option>
-                        <option value="month">1 Month</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <!-- Temperature Chart -->
-                <div class="chart-container">
-                    <h3>Temperature (°C)</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="temperatureChart"></canvas>
-                        <div class="chart-placeholder" id="temperaturePlaceholder">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <p>Data unavailable – check connection</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- pH Chart -->
-                <div class="chart-container">
-                    <h3>pH Level</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="phChart"></canvas>
-                        <div class="chart-placeholder" id="phPlaceholder">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <p>Data unavailable – check connection</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Ammonia Chart -->
-                <div class="chart-container">
-                    <h3>Ammonia (ppm)</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="ammoniaChart"></canvas>
-                        <div class="chart-placeholder" id="ammoniaPlaceholder">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <p>Data unavailable – check connection</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Water Level Chart -->
-                <div class="chart-container">
-                    <h3>Water Level (%)</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="waterLevelChart"></canvas>
-                        <div class="chart-placeholder" id="waterLevelPlaceholder">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <p>Data unavailable – check connection</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Loading Indicator -->
-        <div class="loading-indicator" id="loadingIndicator">
-            <i class="fas fa-spinner fa-spin"></i>
-            <span>Loading data...</span>
-        </div>
     </main>
 
     <!-- Settings Modal -->

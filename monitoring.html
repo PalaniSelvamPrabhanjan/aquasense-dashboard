@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AquaSense - Water Quality Monitoring</title>
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- ✅ Date adapter required for time scale in Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+
+    <!-- Font Awesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1>AquaSense  Dashboard</h1>
+            <p class="subtitle">Smart Aquarium Monitoring System</p>
+        </div>
+    </header>
+
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="index.html" class="nav-link">Overview</a>
+            <a href="monitoring.html" class="nav-link">Water Quality</a>
+            <a href="feeding.html" class="nav-link">Feeding</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Water Quality Charts -->
+        <section class="charts-section">
+            <div class="section-header">
+                <h2>Water Quality Monitoring</h2>
+                <div class="timeline-control">
+                    <label for="timelineSelect">Timeline:</label>
+                    <select id="timelineSelect" class="timeline-dropdown" onchange="selectTimeline(this.value)">
+                        <option value="day" selected>1 Day</option>
+                        <option value="week">1 Week</option>
+                        <option value="month">1 Month</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <!-- Temperature Chart -->
+                <div class="chart-container">
+                    <h3>Temperature (°C)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="temperatureChart"></canvas>
+                        <div class="chart-placeholder" id="temperaturePlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- pH Chart -->
+                <div class="chart-container">
+                    <h3>pH Level</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="phChart"></canvas>
+                        <div class="chart-placeholder" id="phPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ammonia Chart -->
+                <div class="chart-container">
+                    <h3>Ammonia (ppm)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="ammoniaChart"></canvas>
+                        <div class="chart-placeholder" id="ammoniaPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Water Level Chart -->
+                <div class="chart-container">
+                    <h3>Water Level (%)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="waterLevelChart"></canvas>
+                        <div class="chart-placeholder" id="waterLevelPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading Indicator -->
+        <div class="loading-indicator" id="loadingIndicator">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading data...</span>
+        </div>
+    </main>
+
+    <!-- Your app logic -->
+    <script src="app.js"></script>
+</body>
+</html>
