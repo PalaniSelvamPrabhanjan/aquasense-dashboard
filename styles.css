@@ -364,6 +364,13 @@ section {
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
+.auto-feeder-card .btn-primary:disabled {
+    background: #b0b8e8;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 .prediction-panel-standalone {
     background: #f8f9fa;
     border: 2px solid #e9ecef;

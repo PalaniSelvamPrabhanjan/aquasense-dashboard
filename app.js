@@ -201,51 +201,49 @@ function getTimeAxisOptions() {
     type: "time",
     bounds: "data",
     ticks: {
-      source: "data",
       autoSkip: true,
-      autoSkipPadding: 20,
-      maxTicksLimit: 8,
-      maxRotation: 45,
-      minRotation: 45,
+      autoSkipPadding: 40,
+      maxTicksLimit: 5,
+      maxRotation: 0,
+      minRotation: 0,
     },
     grid: { color: "#e9ecef" },
   };
 
-  // Configure display format based on timeline
+  // Configure display format and unit based on timeline
   switch (currentTimeline) {
     case "day":
       baseConfig.time = {
+        unit: "hour",
         tooltipFormat: "MMM dd, yyyy HH:mm",
         displayFormats: {
-          hour: "MMM dd HH:mm",
-          minute: "HH:mm",
+          hour: "HH:mm",
         },
       };
       break;
     case "week":
       baseConfig.time = {
+        unit: "day",
         tooltipFormat: "MMM dd, yyyy HH:mm",
         displayFormats: {
           day: "MMM dd",
-          hour: "MMM dd",
         },
       };
       break;
     case "month":
       baseConfig.time = {
+        unit: "week",
         tooltipFormat: "MMM dd, yyyy",
         displayFormats: {
-          day: "MMM dd",
           week: "MMM dd",
         },
       };
-      baseConfig.ticks.maxTicksLimit = 10;
       break;
     default:
       baseConfig.time = {
         tooltipFormat: "MMM dd, yyyy HH:mm",
         displayFormats: {
-          hour: "MMM dd HH:mm",
+          hour: "HH:mm",
           day: "MMM dd",
         },
       };
@@ -539,6 +537,30 @@ function updateAlerts(readings) {
 /**
  * Auto Feeder functionality
  */
+async function createFeedingEvent(payload) {
+  try {
+    const response = await fetch(`${API_BASE}/feeding-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Feeding event API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log("✅ Feeding event created successfully:", result);
+    return result;
+  } catch (error) {
+    console.error("❌ Failed to create feeding event:", error);
+    throw error;
+  }
+}
+
+/**
+ * Auto Feeder functionality
+ */
 function setupFeederForm() {
   const form = document.getElementById("feederForm");
   if (!form) return;
@@ -550,23 +572,49 @@ function setupFeederForm() {
   if (savedTime) document.getElementById("feederTime").value = savedTime;
   if (savedQty) document.getElementById("feederQty").value = savedQty;
 
-  form.addEventListener("submit", function (e) {
+  form.addEventListener("submit", async function (e) {
     e.preventDefault();
 
     const time = document.getElementById("feederTime").value;
     const qty = parseFloat(document.getElementById("feederQty").value);
+    const submitBtn = form.querySelector('button[type="submit"]');
 
+    // Validate inputs
     if (!time || isNaN(qty) || qty < 0 || qty > 10) {
       showFeederMessage("Please enter valid time and quantity (0-10g)", "error");
       return;
     }
 
-    // Save to localStorage
-    localStorage.setItem("feederTime", time);
-    localStorage.setItem("feederQty", qty);
+    // Disable button during submission
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Scheduling...";
 
-    showFeederMessage(`✅ Feed scheduled for ${time} - ${qty}g`, "success");
-    console.log(`📅 Feeder scheduled: ${time} / ${qty}g`);
+    try {
+      // Create feeding event via API
+      const payload = {
+        tank_id: "tank_001",
+        device_id: "aquasense_01",
+        feed_time: time,
+        quantity_grams: qty,
+        created_at: new Date().toISOString(),
+      };
+
+      await createFeedingEvent(payload);
+
+      // Save to localStorage as well
+      localStorage.setItem("feederTime", time);
+      localStorage.setItem("feederQty", qty);
+
+      showFeederMessage(`✅ Feed scheduled for ${time} - ${qty}g`, "success");
+      console.log(`📅 Feeder scheduled: ${time} / ${qty}g`);
+    } catch (error) {
+      console.error("❌ Feeder submission failed:", error);
+      showFeederMessage("❌ Failed to schedule feed. Please try again.", "error");
+    } finally {
+      // Re-enable button
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Schedule Feed";
+    }
   });
 }
 
