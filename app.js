@@ -17,7 +17,7 @@ let currentTimeline = "day";
 let charts = {};              // canvasId -> Chart instance
 let refreshInterval;
 let retryTimeouts = {};
-let isLoadingSensorData = false; // ✅ prevents overlapping chart updates (timeline + auto-refresh)
+let isLoadingSensorData = false; 
 
 // Timeline configurations - maps to API period parameter
 const TIMELINE_CONFIG = {
@@ -34,12 +34,21 @@ const CHART_COLORS = {
   waterLevel: "#2ecc71",
 };
 
+// Alert thresholds and ranges
+const ALERT_THRESHOLDS = {
+  temperature: { min: 24, max: 30, label: "Temperature" },
+  ph: { min: 6.5, max: 8.0, label: "pH Level" },
+  ammonia: { max: 0.25, label: "Ammonia" },
+  waterLevel: { percentageOfTarget: 0.8, label: "Water Level" },
+};
+
 /**
  * Application initialization
  */
 document.addEventListener("DOMContentLoaded", function () {
   console.log("🌊 AquaScope Dashboard initializing...");
   initializeApplication();
+  setupFeederForm();
 });
 
 /**
@@ -79,7 +88,7 @@ async function loadTankProfile() {
     // Show placeholder data
     updateTankDisplay({
       volume: "N/A",
-      target_water_level: "N/A",
+      appropriate_water_level: "N/A",
       fish_count: {
         small: "N/A",
         medium: "N/A",
@@ -98,10 +107,10 @@ async function loadTankProfile() {
  */
 function updateTankDisplay(profile) {
   const volume = profile.tank_volume_liters ?? profile.volume ?? "N/A";
-  const targetWaterLevel = profile.target_water_level ?? "N/A";
+  const appropriateLevelCm = profile.appropriate_water_level ?? profile.target_water_level ?? "N/A";
 
   document.getElementById("tankVolume").textContent = volume;
-  document.getElementById("targetWaterLevel").textContent = targetWaterLevel;
+  document.getElementById("appropriateWaterLevel").textContent = appropriateLevelCm;
 
   const fishSmall = profile.fish_small ?? profile.fish_count?.small ?? "0";
   const fishMedium = profile.fish_medium ?? profile.fish_count?.medium ?? "0";
@@ -120,7 +129,6 @@ function updateTankDisplay(profile) {
  * Load sensor data based on current timeline selection
  */
 async function loadSensorData() {
-  // ✅ Prevent overlapping runs (timeline change + auto-refresh)
   if (isLoadingSensorData) return;
   isLoadingSensorData = true;
 
@@ -145,12 +153,14 @@ async function loadSensorData() {
       if (readings.length > 0) {
         updateCharts(readings);
         hideChartPlaceholders();
+        updateAlerts(readings);
         console.log(
           `📈 Loaded ${readings.length} sensor readings for ${config.label} (${responseData.start ?? "?"} to ${responseData.end ?? "?"})`
         );
       } else {
-        // ✅ Don’t throw a hard error (keeps app stable)
+        // ✅ Don't throw a hard error (keeps app stable)
         showChartPlaceholders();
+        updateAlerts([]);
         console.warn(`⚠️ No sensor data for ${config.label}.`);
       }
     } else {
@@ -159,6 +169,7 @@ async function loadSensorData() {
   } catch (error) {
     console.error("❌ Failed to load sensor data:", error);
     showChartPlaceholders();
+    updateAlerts([]);
 
     if (retryTimeouts.sensorData) {
       clearTimeout(retryTimeouts.sensorData);
@@ -248,13 +259,19 @@ function updateChart(canvasId, label, data, color) {
         x: {
           type: "time",
           time: {
-            tooltipFormat: "MMM dd, HH:mm",
+            tooltipFormat: "MMM dd, yyyy HH:mm",
             displayFormats: {
-              hour: "HH:mm",
+              hour: "MMM dd HH:mm",
               day: "MMM dd",
               week: "MMM dd",
-              month: "MMM dd",
+              month: "MMM yyyy",
             },
+          },
+          ticks: {
+            source: "data",
+            autoSkip: true,
+            maxRotation: 45,
+            minRotation: 45,
           },
           grid: { color: "#e9ecef" },
         },
@@ -312,14 +329,14 @@ function openSettingsModal() {
   const profile = window.currentProfile || {};
 
   const volume = profile.tank_volume_liters ?? profile.volume ?? "";
-  const targetLevel = profile.target_water_level ?? "";
+  const appropriateLevel = profile.appropriate_water_level ?? profile.target_water_level ?? "";
   const fishSmall = profile.fish_small ?? profile.fish_count?.small ?? 0;
   const fishMedium = profile.fish_medium ?? profile.fish_count?.medium ?? 0;
   const fishLarge = profile.fish_large ?? profile.fish_count?.large ?? 0;
   const fishXLarge = profile.fish_xlarge ?? profile.fish_count?.extra_large ?? 0;
 
   document.getElementById("volumeInput").value = volume;
-  document.getElementById("targetLevelInput").value = targetLevel;
+  document.getElementById("targetLevelInput").value = appropriateLevel;
   document.getElementById("fishSmallInput").value = fishSmall;
   document.getElementById("fishMediumInput").value = fishMedium;
   document.getElementById("fishLargeInput").value = fishLarge;
@@ -337,6 +354,195 @@ function closeSettingsModal() {
 }
 
 /**
+ * Update alerts based on latest readings
+ */
+function updateAlerts(readings) {
+  const alertsList = document.getElementById("alertsList");
+  if (!alertsList) return;
+
+  const alerts = [];
+  const profile = window.currentProfile || {};
+  const appropriateLevel = profile.appropriate_water_level ?? profile.target_water_level;
+
+  if (readings.length === 0) {
+    alertsList.innerHTML = `
+      <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i>
+        <span>No data available to check alerts</span>
+      </div>
+    `;
+    return;
+  }
+
+  // Get latest reading (sorted by timestamp)
+  const latest = readings.reduce((recent, current) => {
+    return new Date(current.timestamp) > new Date(recent.timestamp) ? current : recent;
+  });
+
+  const temp = parseFloat(latest.temperature);
+  const ph = parseFloat(latest.ph);
+  const ammonia = parseFloat(latest.ammonia);
+  const waterLevel = parseFloat(latest.water_level);
+
+  // Temperature check
+  if (!isNaN(temp)) {
+    if (temp < ALERT_THRESHOLDS.temperature.min) {
+      alerts.push({
+        level: "danger",
+        title: "Low Temperature",
+        value: `${temp.toFixed(1)}°C (min: ${ALERT_THRESHOLDS.temperature.min}°C)`,
+        suggestion: "Check thermal regulator and heating system",
+      });
+    } else if (temp > ALERT_THRESHOLDS.temperature.max) {
+      alerts.push({
+        level: "danger",
+        title: "High Temperature",
+        value: `${temp.toFixed(1)}°C (max: ${ALERT_THRESHOLDS.temperature.max}°C)`,
+        suggestion: "Check cooling system and water circulation",
+      });
+    }
+  }
+
+  // pH check
+  if (!isNaN(ph)) {
+    if (ph < ALERT_THRESHOLDS.ph.min) {
+      alerts.push({
+        level: "caution",
+        title: "Low pH",
+        value: `${ph.toFixed(2)} (min: ${ALERT_THRESHOLDS.ph.min})`,
+        suggestion: "Perform water change and check water source",
+      });
+    } else if (ph > ALERT_THRESHOLDS.ph.max) {
+      alerts.push({
+        level: "caution",
+        title: "High pH",
+        value: `${ph.toFixed(2)} (max: ${ALERT_THRESHOLDS.ph.max})`,
+        suggestion: "Perform water change and review filtration",
+      });
+    }
+  }
+
+  // Ammonia check
+  if (!isNaN(ammonia)) {
+    if (ammonia > ALERT_THRESHOLDS.ammonia.max) {
+      alerts.push({
+        level: "danger",
+        title: "High Ammonia Detected",
+        value: `${ammonia.toFixed(3)} ppm (max: ${ALERT_THRESHOLDS.ammonia.max} ppm)`,
+        suggestion: "Perform immediate water change and check biofilter",
+      });
+    }
+  }
+
+  // Water level check (handle both % and cm)
+  if (!isNaN(waterLevel) && appropriateLevel) {
+    const appropriateLevelNum = parseFloat(appropriateLevel);
+    let isLow = false;
+    let displayValue = "";
+
+    // Assumption logic:
+    // - If waterLevel is <= 1.5 * appropriateLevel and appropriateLevel is large (e.g., 100),
+    //   assume waterLevel is in cm and compare against 80% of appropriate level.
+    // - Otherwise, if waterLevel is between 0–100, treat it as percent and compare against 80%.
+    if (appropriateLevelNum >= 50 && waterLevel <= appropriateLevelNum * 1.5) {
+      const minLevelCm = appropriateLevelNum * ALERT_THRESHOLDS.waterLevel.percentageOfTarget;
+      isLow = waterLevel < minLevelCm;
+      displayValue = `${waterLevel.toFixed(1)} cm (min: ${minLevelCm.toFixed(1)} cm)`;
+    } else if (waterLevel >= 0 && waterLevel <= 100) {
+      isLow = waterLevel < 80;
+      displayValue = `${waterLevel.toFixed(1)}% (min: 80%)`;
+    }
+
+    if (isLow) {
+      alerts.push({
+        level: "caution",
+        title: "Low Water Level",
+        value: displayValue || `${waterLevel.toFixed(1)} (minimum: 80% of target)`,
+        suggestion: "Top up water to appropriate level",
+      });
+    }
+  }
+
+  // Render alerts or "all safe" message
+  if (alerts.length === 0) {
+    alertsList.innerHTML = `
+      <div class="alert alert-success">
+        <i class="fas fa-check-circle"></i>
+        <span>All parameters within safe ranges</span>
+      </div>
+    `;
+  } else {
+    alertsList.innerHTML = alerts
+      .map(
+        (alert) => `
+      <div class="alert alert-${alert.level}">
+        <div class="alert-header">
+          <i class="fas fa-${alert.level === "danger" ? "exclamation-circle" : "info-circle"}"></i>
+          <strong>${alert.title}</strong>
+        </div>
+        <div class="alert-content">
+          <p class="alert-value">${alert.value}</p>
+          <p class="alert-suggestion"><i class="fas fa-lightbulb"></i> ${alert.suggestion}</p>
+        </div>
+      </div>
+    `
+      )
+      .join("");
+  }
+
+  console.log(`🚨 Alerts updated: ${alerts.length} alert(s) detected`);
+}
+
+/**
+ * Auto Feeder functionality
+ */
+function setupFeederForm() {
+  const form = document.getElementById("feederForm");
+  if (!form) return;
+
+  // Load saved values from localStorage
+  const savedTime = localStorage.getItem("feederTime");
+  const savedQty = localStorage.getItem("feederQty");
+
+  if (savedTime) document.getElementById("feederTime").value = savedTime;
+  if (savedQty) document.getElementById("feederQty").value = savedQty;
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+
+    const time = document.getElementById("feederTime").value;
+    const qty = parseFloat(document.getElementById("feederQty").value);
+
+    if (!time || isNaN(qty) || qty < 0 || qty > 10) {
+      showFeederMessage("Please enter valid time and quantity (0-10g)", "error");
+      return;
+    }
+
+    // Save to localStorage
+    localStorage.setItem("feederTime", time);
+    localStorage.setItem("feederQty", qty);
+
+    showFeederMessage(`✅ Feed scheduled for ${time} - ${qty}g`, "success");
+    console.log(`📅 Feeder scheduled: ${time} / ${qty}g`);
+  });
+}
+
+function showFeederMessage(text, type) {
+  const messageEl = document.getElementById("feederMessage");
+  if (messageEl) {
+    messageEl.textContent = text;
+    messageEl.className = `message ${type}`;
+    messageEl.style.display = "block";
+
+    if (type === "success") {
+      setTimeout(() => {
+        messageEl.style.display = "none";
+      }, 3000);
+    }
+  }
+}
+
+/**
  * Save tank settings via API
  */
 async function saveSettings(event) {
@@ -345,7 +551,7 @@ async function saveSettings(event) {
   const settings = {
     tank_id: "tank_001",
     tank_volume_liters: parseInt(document.getElementById("volumeInput").value, 10),
-    target_water_level: parseInt(document.getElementById("targetLevelInput").value, 10),
+    appropriate_water_level: parseInt(document.getElementById("targetLevelInput").value, 10),
     fish_small: parseInt(document.getElementById("fishSmallInput").value, 10),
     fish_medium: parseInt(document.getElementById("fishMediumInput").value, 10),
     fish_large: parseInt(document.getElementById("fishLargeInput").value, 10),
@@ -366,7 +572,7 @@ async function saveSettings(event) {
 
     updateTankDisplay({
       tank_volume_liters: settings.tank_volume_liters,
-      target_water_level: settings.target_water_level,
+      appropriate_water_level: settings.appropriate_water_level,
       fish_small: settings.fish_small,
       fish_medium: settings.fish_medium,
       fish_large: settings.fish_large,

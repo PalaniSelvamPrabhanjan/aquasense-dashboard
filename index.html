@@ -42,9 +42,9 @@
                     <span class="unit">liters</span>
                 </div>
                 <div class="info-card">
-                    <label>Target Water Level</label>
-                    <div class="value" id="targetWaterLevel">Loading...</div>
-                    <span class="unit">%</span>
+                    <label>Appropriate Water Level</label>
+                    <div class="value" id="appropriateWaterLevel">Loading...</div>
+                    <span class="unit">cm</span>
                 </div>
                 <div class="info-card fish-count">
                     <label>Fish Count</label>
@@ -70,7 +70,58 @@
             </div>
         </section>
 
-        <!-- Section 3: Water Quality Charts -->
+        <!-- Section 2: Auto Feeder & Prediction -->
+        <section class="feeder-prediction-section">
+            <h2>Auto Feeder & Status</h2>
+            <div class="feeder-prediction-row">
+                <!-- Auto Feeder -->
+                <div class="auto-feeder-card">
+                    <h3>Auto Feeder Schedule</h3>
+                    <form id="feederForm">
+                        <div class="form-group">
+                            <label for="feederTime">Feed Time</label>
+                            <input type="time" id="feederTime" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="feederQty">Quantity (grams)</label>
+                            <input type="number" id="feederQty" min="0" max="10" step="0.5" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Schedule Feed</button>
+                        <div id="feederMessage" class="message"></div>
+                    </form>
+                </div>
+
+                <!-- Prediction Panel -->
+                <div class="prediction-panel-standalone">
+                    <h3>Predicted End-of-Day Ammonia</h3>
+                    <div class="prediction-display">
+                        <div class="prediction-value" id="predictedAmmonia">0.48</div>
+                        <span class="prediction-unit">ppm</span>
+                    </div>
+                    <div class="prediction-status" id="predictionStatus">
+                        <span class="status-indicator safe"></span>
+                        <span class="status-text">Safe</span>
+                    </div>
+                    <p class="prediction-note">
+                        <i class="fas fa-info-circle"></i>
+                        Prediction model placeholder - SageMaker integration pending
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Alerts -->
+        <section class="alerts-section">
+            <h2>System Alerts</h2>
+            <div id="alertsList" class="alerts-list">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Loading alerts...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Water Quality Charts -->
         <section class="charts-section">
             <div class="section-header">
                 <h2>Water Quality Monitoring</h2>
@@ -109,34 +160,15 @@
                     </div>
                 </div>
 
-                <!-- Ammonia Chart with Prediction Panel -->
-                <div class="ammonia-row">
-                    <div class="chart-container">
-                        <h3>Ammonia (ppm)</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="ammoniaChart"></canvas>
-                            <div class="chart-placeholder" id="ammoniaPlaceholder">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <p>Data unavailable – check connection</p>
-                            </div>
+                <!-- Ammonia Chart -->
+                <div class="chart-container">
+                    <h3>Ammonia (ppm)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="ammoniaChart"></canvas>
+                        <div class="chart-placeholder" id="ammoniaPlaceholder">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Data unavailable – check connection</p>
                         </div>
-                    </div>
-
-                    <!-- Section 4: Ammonia Prediction Panel -->
-                    <div class="prediction-panel">
-                        <h3>Predicted End-of-Day Ammonia</h3>
-                        <div class="prediction-display">
-                            <div class="prediction-value" id="predictedAmmonia">0.48</div>
-                            <span class="prediction-unit">ppm</span>
-                        </div>
-                        <div class="prediction-status" id="predictionStatus">
-                            <span class="status-indicator safe"></span>
-                            <span class="status-text">Safe</span>
-                        </div>
-                        <p class="prediction-note">
-                            <i class="fas fa-info-circle"></i>
-                            Prediction model placeholder - SageMaker integration pending
-                        </p>
                     </div>
                 </div>
 
@@ -176,8 +208,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="targetLevelInput">Target Water Level (%)</label>
-                    <input type="number" id="targetLevelInput" min="1" max="100" required>
+                    <label for="targetLevelInput">Appropriate Water Level (cm)</label>
+                    <input type="number" id="targetLevelInput" min="1" max="1000" required>
                 </div>
 
                 <div class="form-group">
