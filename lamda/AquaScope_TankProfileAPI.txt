@@ -1,0 +1,107 @@
+import json
+import os
+import boto3
+from decimal import Decimal
+
+dynamodb = boto3.resource("dynamodb")
+TABLE_NAME = os.environ.get("TANK_PROFILE_TABLE", "aquascope_tank_profile")
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
+
+table = dynamodb.Table(TABLE_NAME)
+
+def _resp(status, body=None, extra_headers=None):
+    headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+        "Access-Control-Allow-Headers": "content-type",
+        "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    return {"statusCode": status, "headers": headers, "body": json.dumps(body or {})}
+
+def _to_decimal(val):
+    """Convert numeric-ish values to Decimal for DynamoDB."""
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, (int, float)):
+        return Decimal(str(val))
+    # strings like "100" or "100.5"
+    return Decimal(str(val))
+
+def _decode_body(event):
+    raw = event.get("body") or "{}"
+    if event.get("isBase64Encoded"):
+        import base64
+        raw = base64.b64decode(raw).decode("utf-8")
+    return raw
+
+def _decimal_to_float(obj):
+    """Recursively convert Decimals to float for JSON responses."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, list):
+        return [_decimal_to_float(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _decimal_to_float(v) for k, v in obj.items()}
+    return obj
+
+def lambda_handler(event, context):
+    method = (
+        event.get("requestContext", {})
+            .get("http", {})
+            .get("method")
+        or event.get("httpMethod")
+    )
+
+    # Preflight
+    if method == "OPTIONS":
+        return _resp(200, {"ok": True})
+
+    if method == "GET":
+        qs = event.get("queryStringParameters") or {}
+        tank_id = qs.get("tank_id")
+        if not tank_id:
+            return _resp(400, {"error": "Missing query param: tank_id"})
+
+        r = table.get_item(Key={"tank_id": tank_id})
+        item = r.get("Item")
+        if not item:
+            return _resp(404, {"error": "Tank profile not found", "tank_id": tank_id})
+
+        # Convert Decimals to float for clean JSON
+        item = _decimal_to_float(item)
+        return _resp(200, item)
+
+    if method == "PUT":
+        raw = _decode_body(event)
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            return _resp(400, {"error": "Invalid JSON body"})
+
+        tank_id = body.get("tank_id")
+        if not tank_id:
+            return _resp(400, {"error": "Missing field: tank_id"})
+
+        # Build item (includes appropriate_water_level)
+        item = {
+            "tank_id": tank_id,
+            "tank_volume_liters": _to_decimal(body.get("tank_volume_liters", 0)),
+            "appropriate_water_level": _to_decimal(body.get("appropriate_water_level")),  # ✅ NEW
+            "fish_small": int(body.get("fish_small", 0)),
+            "fish_medium": int(body.get("fish_medium", 0)),
+            "fish_large": int(body.get("fish_large", 0)),
+            "fish_xlarge": int(body.get("fish_xlarge", 0)),
+            "updated_at": body.get("updated_at"),  # optional ISO string
+        }
+
+        # Remove None values (so field is optional)
+        item = {k: v for k, v in item.items() if v is not None}
+
+        table.put_item(Item=item)
+        return _resp(200, {"message": "Saved tank profile", "tank_id": tank_id})
+
+    return _resp(405, {"error": f"Method not allowed: {method}"})

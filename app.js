@@ -194,6 +194,67 @@ function updateCharts(readings) {
 }
 
 /**
+ * Get time axis configuration based on current timeline
+ */
+function getTimeAxisOptions() {
+  const baseConfig = {
+    type: "time",
+    bounds: "data",
+    ticks: {
+      source: "data",
+      autoSkip: true,
+      autoSkipPadding: 20,
+      maxTicksLimit: 8,
+      maxRotation: 45,
+      minRotation: 45,
+    },
+    grid: { color: "#e9ecef" },
+  };
+
+  // Configure display format based on timeline
+  switch (currentTimeline) {
+    case "day":
+      baseConfig.time = {
+        tooltipFormat: "MMM dd, yyyy HH:mm",
+        displayFormats: {
+          hour: "MMM dd HH:mm",
+          minute: "HH:mm",
+        },
+      };
+      break;
+    case "week":
+      baseConfig.time = {
+        tooltipFormat: "MMM dd, yyyy HH:mm",
+        displayFormats: {
+          day: "MMM dd",
+          hour: "MMM dd",
+        },
+      };
+      break;
+    case "month":
+      baseConfig.time = {
+        tooltipFormat: "MMM dd, yyyy",
+        displayFormats: {
+          day: "MMM dd",
+          week: "MMM dd",
+        },
+      };
+      baseConfig.ticks.maxTicksLimit = 10;
+      break;
+    default:
+      baseConfig.time = {
+        tooltipFormat: "MMM dd, yyyy HH:mm",
+        displayFormats: {
+          hour: "MMM dd HH:mm",
+          day: "MMM dd",
+        },
+      };
+  }
+
+  return baseConfig;
+}
+
+/**
  * Process raw sensor readings into chart-ready format
  */
 function processChartData(readings) {
@@ -256,25 +317,7 @@ function updateChart(canvasId, label, data, color) {
         legend: { display: false },
       },
       scales: {
-        x: {
-          type: "time",
-          time: {
-            tooltipFormat: "MMM dd, yyyy HH:mm",
-            displayFormats: {
-              hour: "MMM dd HH:mm",
-              day: "MMM dd",
-              week: "MMM dd",
-              month: "MMM yyyy",
-            },
-          },
-          ticks: {
-            source: "data",
-            autoSkip: true,
-            maxRotation: 45,
-            minRotation: 45,
-          },
-          grid: { color: "#e9ecef" },
-        },
+        x: getTimeAxisOptions(),
         y: {
           beginAtZero: false,
           grid: { color: "#e9ecef" },

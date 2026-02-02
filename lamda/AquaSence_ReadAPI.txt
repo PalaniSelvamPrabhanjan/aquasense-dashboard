@@ -1,0 +1,119 @@
+import json
+import os
+import boto3
+from decimal import Decimal
+from datetime import datetime, timedelta, timezone
+from boto3.dynamodb.conditions import Key
+
+dynamodb = boto3.resource("dynamodb")
+
+TABLE_NAME = os.environ.get("TABLE_NAME", "AquaSense_Readings")
+DEFAULT_DEVICE_ID = os.environ.get("DEFAULT_DEVICE_ID", "aquasense_01")
+
+table = dynamodb.Table(TABLE_NAME)
+
+def _json_default(o):
+    if isinstance(o, Decimal):
+        return float(o)
+    raise TypeError(f"Object of type {type(o)} is not JSON serializable")
+
+def _iso_now_utc():
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+def _parse_iso(s: str):
+    """
+    Accepts:
+      - 'YYYY-MM-DDTHH:MM:SS' (assumed UTC)
+      - 'YYYY-MM-DDTHH:MM:SS+08:00' (keeps tz)
+    Returns timezone-aware datetime.
+    """
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+def _to_iso_z(dt: datetime):
+    # store/query in ISO without microseconds; DynamoDB sort key is string
+    # Keep it as 'YYYY-MM-DDTHH:MM:SS' (no Z) for lexical comparisons.
+    return dt.astimezone(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%S")
+
+def lambda_handler(event, context):
+    qs = (event.get("queryStringParameters") or {}) if isinstance(event, dict) else {}
+
+    device_id = (qs.get("device_id") or DEFAULT_DEVICE_ID).strip()
+    period = (qs.get("period") or "").strip().lower()
+    start_raw = (qs.get("start") or "").strip()
+    end_raw = (qs.get("end") or "").strip()
+
+    now = _iso_now_utc()
+
+    # Priority 1: explicit start/end
+    if start_raw and end_raw:
+        try:
+            start_dt = _parse_iso(start_raw)
+            end_dt = _parse_iso(end_raw)
+        except Exception:
+            return {
+                "statusCode": 400,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                },
+                "body": json.dumps({"error": "Invalid start/end format. Use ISO like 2026-01-29T00:00:00"}),
+            }
+    else:
+        # Priority 2: period shortcuts
+        if period in ("1d", "day", "1day"):
+            start_dt = now - timedelta(days=1)
+            end_dt = now
+        elif period in ("1w", "week", "1week"):
+            start_dt = now - timedelta(days=7)
+            end_dt = now
+        elif period in ("1m", "month", "1month"):
+            start_dt = now - timedelta(days=30)
+            end_dt = now
+        else:
+            # default: 1 day
+            start_dt = now - timedelta(days=1)
+            end_dt = now
+
+    # Convert to ISO strings that compare correctly as sort keys
+    start_ts = _to_iso_z(start_dt)
+    end_ts = _to_iso_z(end_dt)
+
+    # Query within the sort-key range
+    # Note: 'between' is inclusive on both ends.
+    try:
+        resp = table.query(
+            KeyConditionExpression=Key("device_id").eq(device_id) & Key("timestamp").between(start_ts, end_ts),
+            ScanIndexForward=True  # oldest -> newest for charting
+        )
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+            },
+            "body": json.dumps({"error": "DynamoDB query failed", "detail": str(e)}),
+        }
+
+    items = resp.get("Items", [])
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+        },
+        "body": json.dumps(
+            {
+                "device_id": device_id,
+                "start": start_ts,
+                "end": end_ts,
+                "count": len(items),
+                "items": items
+            },
+            default=_json_default
+        )
+    }
