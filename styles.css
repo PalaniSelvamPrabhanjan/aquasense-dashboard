@@ -20,13 +20,18 @@ body {
 }
 
 /* Header */
-.header{
-  background-image:
-    linear-gradient(135deg, rgba(102,126,234,0.75), rgba(118,75,162,0.75)),
-    url("./assets/fish-header.jpg");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+.header {
+    position: relative;
+    padding: 2rem 0;
+    text-align: center;
+    color: #fff;
+    overflow: hidden;
+    background-image:
+        linear-gradient(135deg, rgba(102,126,234,0.60), rgba(118,75,162,0.60)),
+        url("./assets/fish-header.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 
 .header::before {
@@ -36,7 +41,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.0);
+    background: transparent;
     z-index: 1;
 }
 
@@ -49,12 +54,53 @@ body {
     font-size: 2.5rem;
     font-weight: 700;
     margin-bottom: 0.5rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .subtitle {
     font-size: 1.1rem;
-    opacity: 0.9;
+    opacity: 1;
     font-weight: 300;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Navigation Bar */
+.nav-bar {
+    background: #ffffff;
+    border-bottom: 2px solid #e9ecef;
+    padding: 0;
+    margin: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+}
+
+.nav-link {
+    padding: 1rem 0;
+    text-decoration: none;
+    color: #6c757d;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.nav-link:hover {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+.nav-link.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
 }
 
 /* Sections */
@@ -872,6 +918,140 @@ section {
     .fish-inputs {
         grid-template-columns: 1fr;
     }
+}
+
+/* Feeding History Table */
+.feeding-history-section {
+    margin: 2rem 0;
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+}
+
+.feeding-history-section h2 {
+    color: #2c3e50;
+    font-size: 1.8rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+.feeding-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+}
+
+.btn-refresh {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-refresh:hover {
+    background: #5a67d8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-refresh:disabled {
+    background: #b0b8e8;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.feeding-table-wrapper {
+    overflow-x: auto;
+}
+
+.feeding-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+}
+
+.feeding-table thead {
+    background: #f8f9fa;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.feeding-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 0.95rem;
+}
+
+.feeding-table tbody tr {
+    border-bottom: 1px solid #e9ecef;
+    transition: background-color 0.2s ease;
+}
+
+.feeding-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.feeding-table td {
+    padding: 1rem;
+    color: #495057;
+    font-size: 0.9rem;
+}
+
+.feeding-table .timestamp {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.feeding-table .status-badge {
+    display: inline-block;
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.success {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.pending {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-badge.failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.feeding-empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: #6c757d;
+}
+
+.feeding-empty-state i {
+    font-size: 2.5rem;
+    color: #dee2e6;
+    margin-bottom: 1rem;
+}
+
+.feeding-empty-state p {
+    margin: 0;
+    font-size: 1rem;
 }
 
 /* Chart.js Responsive Overrides */

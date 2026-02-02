@@ -5,7 +5,7 @@
  * Features include sensor data visualization, tank configuration, and ML-based predictions.
  *
  * Author: Senior Frontend Engineer
- * Version: 1.0.1
+ * Version: 1.0.2
  * Date: February 2026
  */
 
@@ -17,7 +17,8 @@ let currentTimeline = "day";
 let charts = {};              // canvasId -> Chart instance
 let refreshInterval;
 let retryTimeouts = {};
-let isLoadingSensorData = false; 
+let isLoadingSensorData = false;
+let currentPage = "overview"; // Track which page is loaded
 
 // Timeline configurations - maps to API period parameter
 const TIMELINE_CONFIG = {
@@ -43,12 +44,49 @@ const ALERT_THRESHOLDS = {
 };
 
 /**
+ * Detect current page based on loaded sections
+ */
+function detectCurrentPage() {
+  if (document.getElementById("temperatureChart")) {
+    currentPage = "monitoring";
+  } else if (document.getElementById("feedingHistorySection")) {
+    currentPage = "feeding";
+  } else {
+    currentPage = "overview";
+  }
+  console.log(`📄 Detected page: ${currentPage}`);
+}
+
+/**
  * Application initialization
  */
 document.addEventListener("DOMContentLoaded", function () {
   console.log("🌊 AquaScope Dashboard initializing...");
+  detectCurrentPage();
+  
+  // Set active nav link
+  const currentFile = window.location.pathname.split('/').pop() || 'index.html';
+  document.querySelectorAll('.nav-link').forEach(link => {
+    const href = link.getAttribute('href');
+    if (href === currentFile || (currentFile === '' && href === 'index.html')) {
+      link.classList.add('active');
+    } else {
+      link.classList.remove('active');
+    }
+  });
+  
   initializeApplication();
   setupFeederForm();
+  
+  // Setup modal click-outside handler safely
+  const modal = document.getElementById("settingsModal");
+  if (modal) {
+    modal.addEventListener("click", function (event) {
+      if (event.target === this) {
+        closeSettingsModal();
+      }
+    });
+  }
 });
 
 /**
@@ -56,9 +94,37 @@ document.addEventListener("DOMContentLoaded", function () {
  */
 async function initializeApplication() {
   try {
-    await Promise.all([loadTankProfile(), loadSensorData()]);
-    updatePredictionPanel();
-    startAutoRefresh();
+    // Only load tank profile and sensor data on relevant pages
+    const promises = [];
+    
+    if (currentPage === "overview" || currentPage === "monitoring") {
+      promises.push(loadTankProfile());
+    }
+    
+    if (currentPage === "monitoring") {
+      promises.push(loadSensorData());
+    }
+    
+    if (currentPage === "overview") {
+      promises.push(loadTankProfile());
+    }
+    
+    if (currentPage === "feeding") {
+      promises.push(loadFeedingEvents());
+    }
+    
+    await Promise.all(promises);
+    
+    // Only update prediction panel on relevant pages
+    if (currentPage === "feeding" || currentPage === "overview") {
+      updatePredictionPanel();
+    }
+    
+    // Only start auto-refresh on monitoring page
+    if (currentPage === "monitoring") {
+      startAutoRefresh();
+    }
+    
     console.log("✅ AquaScope Dashboard initialized successfully");
   } catch (error) {
     console.error("❌ Failed to initialize dashboard:", error);
@@ -109,18 +175,26 @@ function updateTankDisplay(profile) {
   const volume = profile.tank_volume_liters ?? profile.volume ?? "N/A";
   const appropriateLevelCm = profile.appropriate_water_level ?? profile.target_water_level ?? "N/A";
 
-  document.getElementById("tankVolume").textContent = volume;
-  document.getElementById("appropriateWaterLevel").textContent = appropriateLevelCm;
+  const volumeEl = document.getElementById("tankVolume");
+  const levelEl = document.getElementById("appropriateWaterLevel");
+  
+  if (volumeEl) volumeEl.textContent = volume;
+  if (levelEl) levelEl.textContent = appropriateLevelCm;
 
   const fishSmall = profile.fish_small ?? profile.fish_count?.small ?? "0";
   const fishMedium = profile.fish_medium ?? profile.fish_count?.medium ?? "0";
   const fishLarge = profile.fish_large ?? profile.fish_count?.large ?? "0";
   const fishXLarge = profile.fish_xlarge ?? profile.fish_count?.extra_large ?? "0";
 
-  document.getElementById("fishSmall").textContent = fishSmall;
-  document.getElementById("fishMedium").textContent = fishMedium;
-  document.getElementById("fishLarge").textContent = fishLarge;
-  document.getElementById("fishExtraLarge").textContent = fishXLarge;
+  const smallEl = document.getElementById("fishSmall");
+  const mediumEl = document.getElementById("fishMedium");
+  const largeEl = document.getElementById("fishLarge");
+  const xlargeEl = document.getElementById("fishExtraLarge");
+  
+  if (smallEl) smallEl.textContent = fishSmall;
+  if (mediumEl) mediumEl.textContent = fishMedium;
+  if (largeEl) largeEl.textContent = fishLarge;
+  if (xlargeEl) xlargeEl.textContent = fishXLarge;
 
   window.currentProfile = profile;
 }
@@ -590,11 +664,18 @@ function setupFeederForm() {
     submitBtn.textContent = "Scheduling...";
 
     try {
+      // Create ISO datetime for today
+      const today = new Date();
+      const [hours, minutes] = time.split(":");
+      const feedDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(hours), parseInt(minutes), 0);
+      const feed_time_iso = feedDateTime.toISOString();
+
       // Create feeding event via API
       const payload = {
         tank_id: "tank_001",
         device_id: "aquasense_01",
         feed_time: time,
+        feed_time_iso: feed_time_iso,
         quantity_grams: qty,
         created_at: new Date().toISOString(),
       };
@@ -607,6 +688,11 @@ function setupFeederForm() {
 
       showFeederMessage(`✅ Feed scheduled for ${time} - ${qty}g`, "success");
       console.log(`📅 Feeder scheduled: ${time} / ${qty}g`);
+      
+      // Reload feeding history if available
+      if (currentPage === "feeding") {
+        await loadFeedingEvents();
+      }
     } catch (error) {
       console.error("❌ Feeder submission failed:", error);
       showFeederMessage("❌ Failed to schedule feed. Please try again.", "error");
@@ -715,6 +801,117 @@ function getPredictedAmmonia() {
 }
 
 /**
+ * Load feeding events from API
+ */
+async function loadFeedingEvents() {
+  try {
+    const response = await fetch(`${API_BASE}/feeding-events?tank_id=tank_001`);
+
+    if (!response.ok) {
+      throw new Error(`Feeding events API error: ${response.status}`);
+    }
+
+    let events = await response.json();
+
+    // Handle both array and { items: [...] } response formats
+    if (events && events.items) {
+      events = events.items;
+    } else if (!Array.isArray(events)) {
+      events = [];
+    }
+
+    // Sort by created_at/timestamp descending (most recent first)
+    events.sort((a, b) => {
+      const timeA = new Date(a.created_at || a.timestamp || 0);
+      const timeB = new Date(b.created_at || b.timestamp || 0);
+      return timeB - timeA;
+    });
+
+    // Take top 20
+    events = events.slice(0, 20);
+
+    renderFeedingHistory(events);
+    console.log(`📋 Feeding events loaded: ${events.length} event(s)`);
+  } catch (error) {
+    console.error("❌ Failed to load feeding events:", error);
+    renderFeedingHistory([]);
+  }
+}
+
+/**
+ * Render feeding history table
+ */
+function renderFeedingHistory(events) {
+  const tableBody = document.getElementById("feedingTableBody");
+  if (!tableBody) return;
+
+  if (!events || events.length === 0) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: 2rem;">
+          <div class="feeding-empty-state">
+            <i class="fas fa-calendar-times"></i>
+            <p>No feeding events yet</p>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tableBody.innerHTML = events
+    .map((event) => {
+      const timestamp = new Date(event.created_at || event.timestamp);
+      const formattedTimestamp = timestamp.toISOString().replace("T", " ").substring(0, 19);
+      const feedTime = event.feed_time || event.feed_time_iso || "N/A";
+      const quantity = event.quantity_grams ?? event.quantity ?? "N/A";
+      const deviceId = event.device_id || "aquasense_01";
+      const tankId = event.tank_id || "tank_001";
+      const status = event.status || "success";
+
+      let statusClass = "success";
+      if (status === "pending") statusClass = "pending";
+      else if (status === "failed") statusClass = "failed";
+
+      return `
+        <tr>
+          <td class="timestamp">${formattedTimestamp}</td>
+          <td>${feedTime}</td>
+          <td>${quantity}g</td>
+          <td>${deviceId}</td>
+          <td>${tankId}</td>
+          <td><span class="status-badge ${statusClass}">${status}</span></td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  console.log("📊 Feeding history rendered");
+}
+
+/**
+ * Refresh feeding history
+ */
+async function refreshFeedingHistory() {
+  const refreshBtn = document.getElementById("refreshFeedingBtn");
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+  }
+
+  try {
+    await loadFeedingEvents();
+  } catch (error) {
+    console.error("❌ Failed to refresh feeding history:", error);
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<i class="fas fa-redo"></i> Refresh';
+    }
+  }
+}
+
+/**
  * Auto-refresh functionality
  */
 function startAutoRefresh() {
@@ -726,7 +923,13 @@ function startAutoRefresh() {
     console.log("🔄 Auto-refreshing dashboard data...");
 
     try {
-      await Promise.all([loadTankProfile(), loadSensorData()]);
+      if (currentPage === "monitoring") {
+        await Promise.all([loadTankProfile(), loadSensorData()]);
+      } else if (currentPage === "feeding") {
+        await loadFeedingEvents();
+      } else {
+        await loadTankProfile();
+      }
       updatePredictionPanel();
     } catch (error) {
       console.error("❌ Auto-refresh failed:", error);
