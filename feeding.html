@@ -136,6 +136,61 @@
         </section>
     </main>
 
+    <!-- Edit Pending Feeding Modal -->
+    <div class="modal" id="editPendingModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Scheduled Feeding</h2>
+                <button class="modal-close" onclick="closeEditPendingModal()">&times;</button>
+            </div>
+
+            <form class="settings-form" id="editPendingForm">
+                <div class="form-group">
+                    <label for="editFeedingTime">Feed Date & Time</label>
+                    <input type="datetime-local" id="editFeedingTime" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="editFeedingQty">Quantity (grams)</label>
+                    <input type="number" id="editFeedingQty" min="0" max="10" step="0.5" required>
+                </div>
+
+                <input type="hidden" id="editFeedingOriginalTimestamp">
+                <input type="hidden" id="editFeedingTankId">
+
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeEditPendingModal()">Cancel</button>
+                    <button type="submit" class="btn-save">Update Feeding</button>
+                </div>
+            </form>
+
+            <div class="message" id="editPendingMessage"></div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="deletePendingModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Delete Scheduled Feeding</h2>
+                <button class="modal-close" onclick="closeDeletePendingModal()">&times;</button>
+            </div>
+
+            <div class="delete-confirmation">
+                <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #e74c3c; margin-bottom: 1rem;"></i>
+                <p style="font-size: 1.1rem; margin-bottom: 1rem;">Are you sure you want to delete this scheduled feeding?</p>
+                <p id="deleteConfirmationDetails" style="color: #6c757d; margin-bottom: 2rem;"></p>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeDeletePendingModal()">Cancel</button>
+                    <button type="button" class="btn-delete-confirm" onclick="confirmDeletePending()">Delete Feeding</button>
+                </div>
+            </div>
+
+            <div class="message" id="deletePendingMessage"></div>
+        </div>
+    </div>
+
     <!-- Your app logic -->
     <script src="app.js"></script>
 </body>

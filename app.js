@@ -83,6 +83,35 @@ document.addEventListener("DOMContentLoaded", function () {
     btn.addEventListener("click", openSettingsModal);
   });
   
+  // Bind edit pending form submission
+  const editPendingForm = document.getElementById("editPendingForm");
+  if (editPendingForm) {
+    editPendingForm.addEventListener("submit", handleEditPendingSubmit);
+  }
+  
+  // Close modals on escape key
+  document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape") {
+      closeEditPendingModal();
+      closeDeletePendingModal();
+    }
+  });
+  
+  // Close modals on outside click
+  const editModal = document.getElementById("editPendingModal");
+  if (editModal) {
+    editModal.addEventListener("click", function(event) {
+      if (event.target === this) closeEditPendingModal();
+    });
+  }
+  
+  const deleteModal = document.getElementById("deletePendingModal");
+  if (deleteModal) {
+    deleteModal.addEventListener("click", function(event) {
+      if (event.target === this) closeDeletePendingModal();
+    });
+  }
+  
 });
 
 /**
@@ -690,6 +719,7 @@ function setupFeederForm() {
         event_type: "SCHEDULE_UPDATED",
         feed_quantity_g: qty,
         timestamp: timestamp,
+        status: "pending",
       };
 
       console.log("📤 Sending feeder payload:", payload);
@@ -850,6 +880,9 @@ async function loadFeedingEvents() {
     } else if (!Array.isArray(events)) {
       events = [];
     }
+    
+    // Filter out pending items from history (they show in Pending Feedings section)
+    events = events.filter(event => event.status !== "pending");
 
     // Sort by created_at/timestamp descending (most recent first)
     events.sort((a, b) => {
@@ -1033,34 +1066,85 @@ function renderPendingFeedings(events) {
 /**
  * Edit pending feeding
  */
-async function editPendingFeeding(timestamp, tankId, currentQty) {
-  const newDatetime = prompt(`Edit feed time (current: ${new Date(timestamp).toLocaleString()}):\n\nEnter new datetime (YYYY-MM-DDTHH:MM):`, timestamp.slice(0, 16));
+function editPendingFeeding(timestamp, tankId, currentQty) {
+  // Open modal and populate with current values
+  const modal = document.getElementById("editPendingModal");
+  const timeInput = document.getElementById("editFeedingTime");
+  const qtyInput = document.getElementById("editFeedingQty");
+  const originalTimestampInput = document.getElementById("editFeedingOriginalTimestamp");
+  const tankIdInput = document.getElementById("editFeedingTankId");
   
-  if (!newDatetime || newDatetime === timestamp.slice(0, 16)) {
-    return; // User cancelled or no change
-  }
-
-  const newQty = prompt(`Edit quantity (current: ${currentQty}g):\n\nEnter new quantity (0-10):`, currentQty);
+  if (!modal || !timeInput || !qtyInput) return;
   
-  if (!newQty) {
-    return; // User cancelled
+  // Set current values
+  timeInput.value = timestamp.slice(0, 16); // YYYY-MM-DDTHH:mm
+  qtyInput.value = currentQty;
+  originalTimestampInput.value = timestamp;
+  tankIdInput.value = tankId;
+  
+  // Show modal
+  modal.classList.add("show");
+  
+  // Clear any previous messages
+  const messageEl = document.getElementById("editPendingMessage");
+  if (messageEl) {
+    messageEl.textContent = "";
+    messageEl.className = "message";
   }
+}
 
-  const qty = parseFloat(newQty);
-  if (isNaN(qty) || qty < 0 || qty > 10) {
-    alert("Invalid quantity. Please enter a number between 0 and 10.");
+/**
+ * Close edit pending modal
+ */
+function closeEditPendingModal() {
+  const modal = document.getElementById("editPendingModal");
+  if (modal) {
+    modal.classList.remove("show");
+  }
+}
+
+/**
+ * Handle edit pending form submission
+ */
+async function handleEditPendingSubmit(event) {
+  event.preventDefault();
+  
+  const timeInput = document.getElementById("editFeedingTime");
+  const qtyInput = document.getElementById("editFeedingQty");
+  const originalTimestampInput = document.getElementById("editFeedingOriginalTimestamp");
+  const tankIdInput = document.getElementById("editFeedingTankId");
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  const messageEl = document.getElementById("editPendingMessage");
+  
+  const newDatetime = timeInput.value;
+  const qty = parseFloat(qtyInput.value);
+  const originalTimestamp = originalTimestampInput.value;
+  const tankId = tankIdInput.value;
+  
+  if (!newDatetime || isNaN(qty) || qty < 0 || qty > 10) {
+    if (messageEl) {
+      messageEl.textContent = "Please enter valid date/time and quantity (0-10g)";
+      messageEl.className = "message error";
+    }
     return;
   }
-
+  
+  // Disable button during submission
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Updating...";
+  }
+  
   try {
     const newTimestamp = newDatetime + ":00";
     
     const payload = {
       tank_id: tankId,
-      timestamp: timestamp, // Original timestamp for identification
+      timestamp: originalTimestamp, // Original timestamp for identification
       new_timestamp: newTimestamp, // New timestamp if changed
       feed_quantity_g: qty,
       event_type: "SCHEDULE_UPDATED",
+      status: "pending",
     };
 
     const response = await fetch(`${API_BASE}/feeding-events`, {
@@ -1085,21 +1169,93 @@ async function editPendingFeeding(timestamp, tankId, currentQty) {
 
     console.log("✅ Pending feeding updated successfully");
     
+    if (messageEl) {
+      messageEl.textContent = "✅ Feeding updated successfully!";
+      messageEl.className = "message success";
+    }
+    
     // Refresh both tables
     await loadPendingFeedings();
     await loadFeedingEvents();
+    
+    // Close modal after short delay
+    setTimeout(() => {
+      closeEditPendingModal();
+    }, 1500);
   } catch (error) {
     console.error("❌ Failed to update pending feeding:", error);
-    alert(`Failed to update feeding: ${error.message}`);
+    if (messageEl) {
+      messageEl.textContent = `❌ Failed to update: ${error.message}`;
+      messageEl.className = "message error";
+    }
+  } finally {
+    // Re-enable button
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Update Feeding";
+    }
   }
 }
 
 /**
  * Delete pending feeding
  */
-async function deletePendingFeeding(timestamp, tankId) {
-  if (!confirm(`Are you sure you want to delete this scheduled feeding?\n\n${new Date(timestamp).toLocaleString()}`)) {
-    return;
+function deletePendingFeeding(timestamp, tankId) {
+  // Open modal and show details
+  const modal = document.getElementById("deletePendingModal");
+  const detailsEl = document.getElementById("deleteConfirmationDetails");
+  
+  if (!modal) return;
+  
+  // Store data in modal for confirmation
+  modal.dataset.timestamp = timestamp;
+  modal.dataset.tankId = tankId;
+  
+  // Show feeding details
+  if (detailsEl) {
+    const formattedTime = new Date(timestamp).toLocaleString();
+    detailsEl.textContent = `Scheduled for: ${formattedTime}`;
+  }
+  
+  // Show modal
+  modal.classList.add("show");
+  
+  // Clear any previous messages
+  const messageEl = document.getElementById("deletePendingMessage");
+  if (messageEl) {
+    messageEl.textContent = "";
+    messageEl.className = "message";
+  }
+}
+
+/**
+ * Close delete pending modal
+ */
+function closeDeletePendingModal() {
+  const modal = document.getElementById("deletePendingModal");
+  if (modal) {
+    modal.classList.remove("show");
+  }
+}
+
+/**
+ * Confirm and execute delete
+ */
+async function confirmDeletePending() {
+  const modal = document.getElementById("deletePendingModal");
+  if (!modal) return;
+  
+  const timestamp = modal.dataset.timestamp;
+  const tankId = modal.dataset.tankId;
+  const messageEl = document.getElementById("deletePendingMessage");
+  const deleteBtn = modal.querySelector(".btn-delete-confirm");
+  
+  if (!timestamp || !tankId) return;
+  
+  // Disable button during submission
+  if (deleteBtn) {
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = "Deleting...";
   }
 
   try {
@@ -1125,12 +1281,31 @@ async function deletePendingFeeding(timestamp, tankId) {
 
     console.log("✅ Pending feeding deleted successfully");
     
+    if (messageEl) {
+      messageEl.textContent = "✅ Feeding deleted successfully!";
+      messageEl.className = "message success";
+    }
+    
     // Refresh both tables
     await loadPendingFeedings();
     await loadFeedingEvents();
+    
+    // Close modal after short delay
+    setTimeout(() => {
+      closeDeletePendingModal();
+    }, 1500);
   } catch (error) {
     console.error("❌ Failed to delete pending feeding:", error);
-    alert(`Failed to delete feeding: ${error.message}`);
+    if (messageEl) {
+      messageEl.textContent = `❌ Failed to delete: ${error.message}`;
+      messageEl.className = "message error";
+    }
+  } finally {
+    // Re-enable button
+    if (deleteBtn) {
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = "Delete Feeding";
+    }
   }
 }
 
@@ -1240,5 +1415,8 @@ window.refreshFeedingHistory = refreshFeedingHistory;
 window.loadPendingFeedings = loadPendingFeedings;
 window.editPendingFeeding = editPendingFeeding;
 window.deletePendingFeeding = deletePendingFeeding;
+window.closeEditPendingModal = closeEditPendingModal;
+window.closeDeletePendingModal = closeDeletePendingModal;
+window.confirmDeletePending = confirmDeletePending;
 
 console.log("AquaScope Dashboard JavaScript loaded successfully");

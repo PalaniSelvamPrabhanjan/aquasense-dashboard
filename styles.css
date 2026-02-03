@@ -1154,3 +1154,34 @@ section {
     cursor: not-allowed;
     transform: none;
 }
+
+/* Delete Confirmation Styles */
+.delete-confirmation {
+    text-align: center;
+    padding: 2rem 1rem;
+}
+
+.btn-delete-confirm {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-delete-confirm:hover {
+    background: #c0392b;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+.btn-delete-confirm:disabled {
+    background: #e89a91;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
