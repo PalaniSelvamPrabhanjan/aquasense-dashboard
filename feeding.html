@@ -36,8 +36,8 @@
                     <h3>Auto Feeder Schedule</h3>
                     <form id="feederForm">
                         <div class="form-group">
-                            <label for="feederTime">Feed Time</label>
-                            <input type="time" id="feederTime" required>
+                            <label for="feederTime">Feed Date & Time</label>
+                            <input type="datetime-local" id="feederTime" required>
                         </div>
                         <div class="form-group">
                             <label for="feederQty">Quantity (grams)</label>
@@ -67,7 +67,41 @@
             </div>
         </section>
 
-        <!-- Section 2: Feeding History -->
+        <!-- Section 2: Pending Feedings -->
+        <section class="pending-feedings-section">
+            <div class="section-header">
+                <h2>Pending Feedings</h2>
+                <button class="btn-refresh" onclick="loadPendingFeedings()">
+                    <i class="fas fa-redo"></i> Refresh
+                </button>
+            </div>
+            <p class="section-description">Scheduled feedings that have not yet been executed</p>
+
+            <div class="feeding-table-wrapper">
+                <table class="feeding-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Quantity (g)</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingFeedingsTableBody">
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 2rem;">
+                                <div class="feeding-empty-state">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <p>Loading pending feedings...</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Section 3: Feeding History -->
         <section class="feeding-history-section" id="feedingHistorySection">
             <div class="section-header">
                 <h2>Feeding History</h2>

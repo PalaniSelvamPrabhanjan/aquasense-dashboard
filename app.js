@@ -102,6 +102,7 @@ async function initializeApplication() {
 
     // Load feeding events on feeding page
     if (currentPage === "feeding") {
+      await loadPendingFeedings();
       await loadFeedingEvents();
     }
 
@@ -663,13 +664,13 @@ function setupFeederForm() {
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
 
-    const time = document.getElementById("feederTime").value;
+    const datetimeValue = document.getElementById("feederTime").value;
     const qty = parseFloat(document.getElementById("feederQty").value);
     const submitBtn = form.querySelector('button[type="submit"]');
 
     // Validate inputs
-    if (!time || isNaN(qty) || qty < 0 || qty > 10) {
-      showFeederMessage("Please enter valid time and quantity (0-10g)", "error");
+    if (!datetimeValue || isNaN(qty) || qty < 0 || qty > 10) {
+      showFeederMessage("Please enter valid date/time and quantity (0-10g)", "error");
       return;
     }
 
@@ -678,19 +679,9 @@ function setupFeederForm() {
     submitBtn.textContent = "Scheduling...";
 
     try {
-      // Create ISO timestamp for today with selected time
-      const today = new Date();
-      const [hours, minutes] = time.split(":");
-      const feedDateTime = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        today.getDate(),
-        parseInt(hours),
-        parseInt(minutes),
-        0
-      );
-      // Format: YYYY-MM-DDTHH:MM:SS
-      const timestamp = feedDateTime.toISOString().slice(0, 19);
+      // Extract ISO timestamp directly from datetime-local input
+      // datetime-local format: YYYY-MM-DDTHH:mm
+      const timestamp = datetimeValue + ":00"; // Add seconds
 
       // Create feeding event via API
       // Backend expects: tank_id, event_type, feed_quantity_g, timestamp
@@ -705,14 +696,15 @@ function setupFeederForm() {
       await createFeedingEvent(payload);
 
       // Save to localStorage as well
-      localStorage.setItem("feederTime", time);
+      localStorage.setItem("feederTime", datetimeValue);
       localStorage.setItem("feederQty", qty);
 
-      showFeederMessage(`✅ Feed scheduled for ${time} - ${qty}g`, "success");
-      console.log(`📅 Feeder scheduled: ${time} / ${qty}g`);
+      showFeederMessage(`✅ Feed scheduled for ${new Date(timestamp).toLocaleString()} - ${qty}g`, "success");
+      console.log(`📅 Feeder scheduled: ${timestamp} / ${qty}g`);
       
-      // Reload feeding history if available
+      // Reload both pending and history if available
       if (currentPage === "feeding") {
+        await loadPendingFeedings();
         await loadFeedingEvents();
       }
     } catch (error) {
@@ -952,6 +944,197 @@ async function refreshFeedingHistory() {
 }
 
 /**
+ * Load pending feedings from API
+ */
+async function loadPendingFeedings() {
+  try {
+    const response = await fetch(`${API_BASE}/feeding-events?tank_id=tank_001`);
+
+    if (!response.ok) {
+      throw new Error(`Pending feedings API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Filter for pending/scheduled events
+    const pendingEvents = (data.items || []).filter(event => 
+      event.event_type === "SCHEDULE_UPDATED" && 
+      event.status !== "success"
+    );
+
+    renderPendingFeedings(pendingEvents);
+    console.log(`📋 Loaded ${pendingEvents.length} pending feeding(s)`);
+  } catch (error) {
+    console.error("❌ Failed to load pending feedings:", error);
+    renderPendingFeedings([]);
+  }
+}
+
+/**
+ * Render pending feedings table
+ */
+function renderPendingFeedings(events) {
+  const tableBody = document.getElementById("pendingFeedingsTableBody");
+  if (!tableBody) return;
+
+  if (!events || events.length === 0) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem;">
+          <div class="feeding-empty-state">
+            <i class="fas fa-calendar-check"></i>
+            <p>No pending feedings scheduled</p>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tableBody.innerHTML = events
+    .map((event) => {
+      const timestampValue = event.timestamp || event.created_at;
+      const timestamp = timestampValue ? new Date(timestampValue) : null;
+      const formattedTimestamp = timestamp && !isNaN(timestamp)
+        ? timestamp.toLocaleString()
+        : "N/A";
+      const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
+      const status = event.status || "pending";
+      const tankId = event.tank_id || "tank_001";
+
+      let statusClass = "pending";
+      if (status === "success") statusClass = "success";
+      else if (status === "failed") statusClass = "failed";
+
+      // Encode timestamp for URL
+      const encodedTimestamp = encodeURIComponent(timestampValue);
+
+      return `
+        <tr data-timestamp="${timestampValue}" data-tank-id="${tankId}">
+          <td class="timestamp">${formattedTimestamp}</td>
+          <td><span id="qty-${encodedTimestamp}">${quantity}g</span></td>
+          <td><span class="status-badge ${statusClass}">${status}</span></td>
+          <td class="actions-cell">
+            <button class="btn-action btn-edit" onclick="editPendingFeeding('${timestampValue}', '${tankId}', ${quantity})" title="Edit">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn-action btn-delete" onclick="deletePendingFeeding('${timestampValue}', '${tankId}')" title="Delete">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  console.log("📊 Pending feedings rendered");
+}
+
+/**
+ * Edit pending feeding
+ */
+async function editPendingFeeding(timestamp, tankId, currentQty) {
+  const newDatetime = prompt(`Edit feed time (current: ${new Date(timestamp).toLocaleString()}):\n\nEnter new datetime (YYYY-MM-DDTHH:MM):`, timestamp.slice(0, 16));
+  
+  if (!newDatetime || newDatetime === timestamp.slice(0, 16)) {
+    return; // User cancelled or no change
+  }
+
+  const newQty = prompt(`Edit quantity (current: ${currentQty}g):\n\nEnter new quantity (0-10):`, currentQty);
+  
+  if (!newQty) {
+    return; // User cancelled
+  }
+
+  const qty = parseFloat(newQty);
+  if (isNaN(qty) || qty < 0 || qty > 10) {
+    alert("Invalid quantity. Please enter a number between 0 and 10.");
+    return;
+  }
+
+  try {
+    const newTimestamp = newDatetime + ":00";
+    
+    const payload = {
+      tank_id: tankId,
+      timestamp: timestamp, // Original timestamp for identification
+      new_timestamp: newTimestamp, // New timestamp if changed
+      feed_quantity_g: qty,
+      event_type: "SCHEDULE_UPDATED",
+    };
+
+    const response = await fetch(`${API_BASE}/feeding-events`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        if (errorBody) {
+          console.error("Backend error response:", errorBody);
+          errorMessage = errorBody;
+        }
+      } catch (e) {
+        // Unable to parse response body
+      }
+      throw new Error(errorMessage);
+    }
+
+    console.log("✅ Pending feeding updated successfully");
+    
+    // Refresh both tables
+    await loadPendingFeedings();
+    await loadFeedingEvents();
+  } catch (error) {
+    console.error("❌ Failed to update pending feeding:", error);
+    alert(`Failed to update feeding: ${error.message}`);
+  }
+}
+
+/**
+ * Delete pending feeding
+ */
+async function deletePendingFeeding(timestamp, tankId) {
+  if (!confirm(`Are you sure you want to delete this scheduled feeding?\n\n${new Date(timestamp).toLocaleString()}`)) {
+    return;
+  }
+
+  try {
+    const url = `${API_BASE}/feeding-events?tank_id=${encodeURIComponent(tankId)}&timestamp=${encodeURIComponent(timestamp)}`;
+    
+    const response = await fetch(url, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        if (errorBody) {
+          console.error("Backend error response:", errorBody);
+          errorMessage = errorBody;
+        }
+      } catch (e) {
+        // Unable to parse response body
+      }
+      throw new Error(errorMessage);
+    }
+
+    console.log("✅ Pending feeding deleted successfully");
+    
+    // Refresh both tables
+    await loadPendingFeedings();
+    await loadFeedingEvents();
+  } catch (error) {
+    console.error("❌ Failed to delete pending feeding:", error);
+    alert(`Failed to delete feeding: ${error.message}`);
+  }
+}
+
+/**
  * Auto-refresh functionality
  */
 function startAutoRefresh() {
@@ -1054,5 +1237,8 @@ window.openSettingsModal = openSettingsModal;
 window.closeSettingsModal = closeSettingsModal;
 window.saveSettings = saveSettings;
 window.refreshFeedingHistory = refreshFeedingHistory;
+window.loadPendingFeedings = loadPendingFeedings;
+window.editPendingFeeding = editPendingFeeding;
+window.deletePendingFeeding = deletePendingFeeding;
 
 console.log("AquaScope Dashboard JavaScript loaded successfully");
