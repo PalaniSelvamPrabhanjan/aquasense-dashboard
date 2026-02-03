@@ -85,24 +85,22 @@ document.addEventListener("DOMContentLoaded", function () {
  */
 async function initializeApplication() {
   try {
-    // Only load tank profile and sensor data on relevant pages
-    const promises = [];
-
+    // Load tank profile on overview and monitoring pages
     if (currentPage === "overview" || currentPage === "monitoring") {
-      promises.push(loadTankProfile());
+      await loadTankProfile();
     }
 
-    if (currentPage === "monitoring") {
-      promises.push(loadSensorData());
+    // Load sensor data on both overview (for alerts) and monitoring (for charts) pages
+    if (currentPage === "overview" || currentPage === "monitoring") {
+      await loadSensorData();
     }
 
+    // Load feeding events on feeding page
     if (currentPage === "feeding") {
-      promises.push(loadFeedingEvents());
+      await loadFeedingEvents();
     }
 
-    await Promise.all(promises);
-
-    // Only update prediction panel on relevant pages
+    // Update prediction panel on feeding and overview pages
     if (currentPage === "feeding" || currentPage === "overview") {
       updatePredictionPanel();
     }
@@ -620,7 +618,18 @@ async function createFeedingEvent(payload) {
     });
 
     if (!response.ok) {
-      throw new Error(`Feeding event API error: ${response.status}`);
+      // Try to read error message from response
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        if (errorBody) {
+          console.error("Backend error response:", errorBody);
+          errorMessage = errorBody;
+        }
+      } catch (e) {
+        // Unable to parse response body
+      }
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();
@@ -668,18 +677,18 @@ function setupFeederForm() {
       const today = new Date();
       const [hours, minutes] = time.split(":");
       const feedDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(hours), parseInt(minutes), 0);
-      const feed_time_iso = feedDateTime.toISOString();
+      const scheduled_at = feedDateTime.toISOString();
 
       // Create feeding event via API
+      // Using payload format: { tank_id, device_id, scheduled_at (ISO string), quantity_grams (number) }
       const payload = {
         tank_id: "tank_001",
         device_id: "aquasense_01",
-        feed_time: time,
-        feed_time_iso: feed_time_iso,
+        scheduled_at: scheduled_at,
         quantity_grams: qty,
-        created_at: new Date().toISOString(),
       };
 
+      console.log("📤 Sending feeder payload:", payload);
       await createFeedingEvent(payload);
 
       // Save to localStorage as well
@@ -695,7 +704,7 @@ function setupFeederForm() {
       }
     } catch (error) {
       console.error("❌ Feeder submission failed:", error);
-      showFeederMessage("❌ Failed to schedule feed. Please try again.", "error");
+      showFeederMessage(`❌ Failed to schedule feed: ${error.message}`, "error");
     } finally {
       // Re-enable button
       submitBtn.disabled = false;
