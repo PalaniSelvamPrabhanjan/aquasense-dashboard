@@ -78,6 +78,11 @@ document.addEventListener("DOMContentLoaded", function () {
   initializeApplication();
   setupFeederForm();
   
+  // Bind Settings button event listeners (remove inline onclick handlers)
+  document.querySelectorAll(".btn-settings").forEach(btn => {
+    btn.addEventListener("click", openSettingsModal);
+  });
+  
 });
 
 /**
@@ -673,19 +678,27 @@ function setupFeederForm() {
     submitBtn.textContent = "Scheduling...";
 
     try {
-      // Create ISO datetime for today
+      // Create ISO timestamp for today with selected time
       const today = new Date();
       const [hours, minutes] = time.split(":");
-      const feedDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(hours), parseInt(minutes), 0);
-      const scheduled_at = feedDateTime.toISOString();
+      const feedDateTime = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
+        parseInt(hours),
+        parseInt(minutes),
+        0
+      );
+      // Format: YYYY-MM-DDTHH:MM:SS
+      const timestamp = feedDateTime.toISOString().slice(0, 19);
 
       // Create feeding event via API
-      // Using payload format: { tank_id, device_id, scheduled_at (ISO string), quantity_grams (number) }
+      // Backend expects: tank_id, event_type, feed_quantity_g, timestamp
       const payload = {
         tank_id: "tank_001",
-        device_id: "aquasense_01",
-        scheduled_at: scheduled_at,
-        quantity_grams: qty,
+        event_type: "SCHEDULE_UPDATED",
+        feed_quantity_g: qty,
+        timestamp: timestamp,
       };
 
       console.log("📤 Sending feeder payload:", payload);
@@ -874,7 +887,7 @@ function renderFeedingHistory(events) {
   if (!events || events.length === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="6" style="text-align: center; padding: 2rem;">
+        <td colspan="5" style="text-align: center; padding: 2rem;">
           <div class="feeding-empty-state">
             <i class="fas fa-calendar-times"></i>
             <p>No feeding events yet</p>
@@ -887,16 +900,15 @@ function renderFeedingHistory(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      const timestampValue = event.created_at || event.timestamp;
+      const timestampValue = event.timestamp || event.created_at;
       const timestamp = timestampValue ? new Date(timestampValue) : null;
       const formattedTimestamp = timestamp && !isNaN(timestamp)
         ? timestamp.toISOString().replace("T", " ").substring(0, 19)
         : "N/A";
-      const feedTime = event.feed_time || event.feed_time_iso || "N/A";
-      const quantity = event.quantity_grams ?? event.quantity ?? "N/A";
-      const deviceId = event.device_id || "aquasense_01";
+      const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const tankId = event.tank_id || "tank_001";
       const status = event.status || "success";
+      const eventType = event.event_type || "SCHEDULE_UPDATED";
 
       let statusClass = "success";
       if (status === "pending") statusClass = "pending";
@@ -905,11 +917,10 @@ function renderFeedingHistory(events) {
       return `
         <tr>
           <td class="timestamp">${formattedTimestamp}</td>
-          <td>${feedTime}</td>
           <td>${quantity}g</td>
-          <td>${deviceId}</td>
           <td>${tankId}</td>
           <td><span class="status-badge ${statusClass}">${status}</span></td>
+          <td>${eventType}</td>
         </tr>
       `;
     })
