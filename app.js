@@ -710,13 +710,15 @@ function setupFeederForm() {
     try {
       // Extract ISO timestamp directly from datetime-local input
       // datetime-local format: YYYY-MM-DDTHH:mm
-      const timestamp = datetimeValue + ":00"; // Add seconds
+      const feedTime = datetimeValue + ":00"; // Add seconds - scheduled feed time
+      const timestamp = new Date().toISOString(); // Current time when posting
 
       // Create feeding event via API
-      // Backend expects: tank_id, feed_quantity_g, timestamp
+      // Backend expects: tank_id, feed_quantity_g, feed_time, timestamp, status
       const payload = {
         tank_id: "tank_001",
         feed_quantity_g: qty,
+        feed_time: feedTime,
         timestamp: timestamp,
         status: "pending",
       };
@@ -728,8 +730,8 @@ function setupFeederForm() {
       localStorage.setItem("feederTime", datetimeValue);
       localStorage.setItem("feederQty", qty);
 
-      showFeederMessage(`✅ Feed scheduled for ${new Date(timestamp).toLocaleString()} - ${qty}g`, "success");
-      console.log(`📅 Feeder scheduled: ${timestamp} / ${qty}g`);
+      showFeederMessage(`✅ Feed scheduled for ${new Date(feedTime).toLocaleString()} - ${qty}g`, "success");
+      console.log(`📅 Feeder scheduled: ${feedTime} / ${qty}g`);
       
       // Reload both pending and history if available
       if (currentPage === "feeding") {
@@ -924,10 +926,11 @@ function renderFeedingHistory(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      const timestampValue = event.timestamp || event.created_at;
-      const timestamp = timestampValue ? new Date(timestampValue) : null;
-      const formattedTimestamp = timestamp && !isNaN(timestamp)
-        ? timestamp.toISOString().replace("T", " ").substring(0, 19)
+      // Use feed_time for display (the scheduled feed time), not timestamp (when posted)
+      const feedTimeValue = event.feed_time || event.timestamp || event.created_at;
+      const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
+      const formattedFeedTime = feedTime && !isNaN(feedTime)
+        ? feedTime.toISOString().replace("T", " ").substring(0, 19)
         : "N/A";
       const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const tankId = event.tank_id || "tank_001";
@@ -938,7 +941,7 @@ function renderFeedingHistory(events) {
 
       return `
         <tr>
-          <td class="timestamp">${formattedTimestamp}</td>
+          <td class="timestamp">${formattedFeedTime}</td>
           <td>${quantity}g</td>
           <td>${tankId}</td>
           <td><span class="status-badge ${statusClass}">${status}</span></td>
@@ -1021,14 +1024,16 @@ function renderPendingFeedings(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      const timestampValue = event.timestamp || event.created_at;
-      const timestamp = timestampValue ? new Date(timestampValue) : null;
-      const formattedTimestamp = timestamp && !isNaN(timestamp)
-        ? timestamp.toLocaleString()
+      // Use feed_time for display (the scheduled feed time), not timestamp (when posted)
+      const feedTimeValue = event.feed_time || event.timestamp || event.created_at;
+      const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
+      const formattedFeedTime = feedTime && !isNaN(feedTime)
+        ? feedTime.toLocaleString()
         : "N/A";
       const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const status = event.status || "pending";
       const tankId = event.tank_id || "tank_001";
+      const timestampValue = event.timestamp || event.created_at;
 
       let statusClass = "pending";
       if (status === "success") statusClass = "success";
@@ -1039,14 +1044,14 @@ function renderPendingFeedings(events) {
 
       return `
         <tr data-timestamp="${timestampValue}" data-tank-id="${tankId}">
-          <td class="timestamp">${formattedTimestamp}</td>
+          <td class="timestamp">${formattedFeedTime}</td>
           <td><span id="qty-${encodedTimestamp}">${quantity}g</span></td>
           <td><span class="status-badge ${statusClass}">${status}</span></td>
           <td class="actions-cell">
-            <button class="btn-action btn-edit" onclick="editPendingFeeding('${timestampValue}', '${tankId}', ${quantity})" title="Edit">
+            <button class="btn-action btn-edit" onclick="editPendingFeeding('${feedTimeValue}', '${tankId}', ${quantity})" title="Edit">
               <i class="fas fa-edit"></i>
             </button>
-            <button class="btn-action btn-delete" onclick="deletePendingFeeding('${timestampValue}', '${tankId}')" title="Delete">
+            <button class="btn-action btn-delete" onclick="deletePendingFeeding('${feedTimeValue}', '${tankId}')" title="Delete">
               <i class="fas fa-trash"></i>
             </button>
           </td>
