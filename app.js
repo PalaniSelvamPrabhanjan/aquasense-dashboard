@@ -713,10 +713,9 @@ function setupFeederForm() {
       const timestamp = datetimeValue + ":00"; // Add seconds
 
       // Create feeding event via API
-      // Backend expects: tank_id, event_type, feed_quantity_g, timestamp
+      // Backend expects: tank_id, feed_quantity_g, timestamp
       const payload = {
         tank_id: "tank_001",
-        event_type: "SCHEDULE_UPDATED",
         feed_quantity_g: qty,
         timestamp: timestamp,
         status: "pending",
@@ -881,8 +880,8 @@ async function loadFeedingEvents() {
       events = [];
     }
     
-    // Filter out pending items from history (they show in Pending Feedings section)
-    events = events.filter(event => event.status !== "pending");
+    // Include any non-pending events in history
+    events = events.filter(event => (event.status || "").toLowerCase() !== "pending");
 
     // Sort by created_at/timestamp descending (most recent first)
     events.sort((a, b) => {
@@ -912,7 +911,7 @@ function renderFeedingHistory(events) {
   if (!events || events.length === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="5" style="text-align: center; padding: 2rem;">
+        <td colspan="4" style="text-align: center; padding: 2rem;">
           <div class="feeding-empty-state">
             <i class="fas fa-calendar-times"></i>
             <p>No feeding events yet</p>
@@ -933,8 +932,6 @@ function renderFeedingHistory(events) {
       const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const tankId = event.tank_id || "tank_001";
       const status = event.status || "success";
-      const eventType = event.event_type || "SCHEDULE_UPDATED";
-
       let statusClass = "success";
       if (status === "pending") statusClass = "pending";
       else if (status === "failed") statusClass = "failed";
@@ -945,7 +942,6 @@ function renderFeedingHistory(events) {
           <td>${quantity}g</td>
           <td>${tankId}</td>
           <td><span class="status-badge ${statusClass}">${status}</span></td>
-          <td>${eventType}</td>
         </tr>
       `;
     })
@@ -991,8 +987,7 @@ async function loadPendingFeedings() {
     
     // Filter for pending/scheduled events
     const pendingEvents = (data.items || []).filter(event => 
-      event.event_type === "SCHEDULE_UPDATED" && 
-      event.status !== "success"
+      (event.status || "").toLowerCase() === "pending"
     );
 
     renderPendingFeedings(pendingEvents);
