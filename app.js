@@ -714,11 +714,11 @@ function setupFeederForm() {
       const timestamp = new Date().toISOString(); // Current time when posting
 
       // Create feeding event via API
-      // Backend expects: tank_id, feed_quantity_g, feed_time, timestamp, status
+      // Backend expects: tank_id, feed_quantity_g, feedtime, timestamp, status
       const payload = {
         tank_id: "tank_001",
         feed_quantity_g: qty,
-        feed_time: feedTime,
+        feedtime: feedTime,
         timestamp: timestamp,
         status: "pending",
       };
@@ -926,8 +926,8 @@ function renderFeedingHistory(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      // Use feed_time for display (the scheduled feed time), not timestamp (when posted)
-      const feedTimeValue = event.feed_time || event.timestamp || event.created_at;
+      // Use feedtime for display (the scheduled feed time), not timestamp (when posted)
+      const feedTimeValue = event.feedtime || event.timestamp || event.created_at;
       const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
       const formattedFeedTime = feedTime && !isNaN(feedTime)
         ? feedTime.toISOString().replace("T", " ").substring(0, 19)
@@ -1024,8 +1024,8 @@ function renderPendingFeedings(events) {
 
   tableBody.innerHTML = events
     .map((event) => {
-      // Use feed_time for display (the scheduled feed time), not timestamp (when posted)
-      const feedTimeValue = event.feed_time || event.timestamp || event.created_at;
+      // Use feedtime for display (the scheduled feed time), not timestamp (when posted)
+      const feedTimeValue = event.feedtime || event.timestamp || event.created_at;
       const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
       const formattedFeedTime = feedTime && !isNaN(feedTime)
         ? feedTime.toLocaleString()
