@@ -779,6 +779,62 @@ function showFeederMessage(text, type) {
   }
 }
 
+const SG_TIME_ZONE = "Asia/Singapore";
+const SG_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: SG_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+function normalizeIsoForSG(isoString) {
+  if (!isoString) return "";
+
+  const trimmed = String(isoString).trim();
+  const hasTimeZone = /[zZ]|[+-]\d{2}:\d{2}$/.test(trimmed);
+  if (hasTimeZone) return trimmed;
+
+  const looksLikeIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(trimmed);
+  if (looksLikeIso) return `${trimmed}+08:00`;
+
+  return trimmed;
+}
+
+function formatSG(isoString) {
+  if (!isoString) return "--";
+
+  const normalized = normalizeIsoForSG(isoString);
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "--";
+
+  const parts = SG_DATE_TIME_FORMATTER.formatToParts(date);
+  const map = {};
+  parts.forEach((part) => {
+    map[part.type] = part.value;
+  });
+
+  return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
+}
+
+function formatSGForInput(isoString) {
+  if (!isoString) return "";
+
+  const normalized = normalizeIsoForSG(isoString);
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const parts = SG_DATE_TIME_FORMATTER.formatToParts(date);
+  const map = {};
+  parts.forEach((part) => {
+    map[part.type] = part.value;
+  });
+
+  return `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}`;
+}
+
 /**
  * Ammonia Prediction Functions
  */
@@ -806,23 +862,17 @@ async function predictAmmonia(payload) {
     const data = await response.json();
     const rawPrediction = parseFloat(data.prediction_ammonia) || 0;
     
-    // Calculate dynamic correction factor inversely proportional to feed amount
-    // At 1g feed: correction = 0.5
-    // At 10g+ feed: correction = 0.1
-    // Linear interpolation between 1g and 10g
     const feedAmount = payload.feed_quantity_g || 1;
     let correction;
     
     if (feedAmount <= 1) {
       correction = 0.5;
     } else if (feedAmount >= 10) {
-      correction = 0.1;
+      correction = 0.01;
     } else {
-      // Linear interpolation: correction = 0.5 - ((feed - 1) / 9) * 0.4
       correction = 0.5 - ((feedAmount - 1) / 9) * 0.4;
     }
-    
-    // Apply correction and ensure non-negative result
+
     const correctedPrediction = Math.max(0, rawPrediction - correction);
     
     console.log(`📊 Prediction: raw=${rawPrediction.toFixed(3)}, correction=${correction.toFixed(3)}, corrected=${correctedPrediction.toFixed(3)}`);
@@ -1056,7 +1106,7 @@ function updatePredictionPanel() {
 }
 
 function getPredictedAmmonia() {
-  return 0.48;
+  return 0.00;
 }
 
 /**
@@ -1082,10 +1132,10 @@ async function loadFeedingEvents() {
     // Include any non-pending events in history
     events = events.filter(event => (event.status || "").toLowerCase() !== "pending");
 
-    // Sort by created_at/timestamp descending (most recent first)
+    // Sort by feedtime (preferred) or timestamp descending (most recent first)
     events.sort((a, b) => {
-      const timeA = new Date(a.created_at || a.timestamp || 0);
-      const timeB = new Date(b.created_at || b.timestamp || 0);
+      const timeA = new Date(a.feedtime || a.timestamp || a.created_at || 0);
+      const timeB = new Date(b.feedtime || b.timestamp || b.created_at || 0);
       return timeB - timeA;
     });
 
@@ -1125,10 +1175,7 @@ function renderFeedingHistory(events) {
     .map((event) => {
       // Use feedtime for display (the scheduled feed time), not timestamp (when posted)
       const feedTimeValue = event.feedtime || event.timestamp || event.created_at;
-      const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
-      const formattedFeedTime = feedTime && !isNaN(feedTime)
-        ? feedTime.toISOString().replace("T", " ").substring(0, 19)
-        : "N/A";
+      const formattedFeedTime = formatSG(feedTimeValue);
       const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const tankId = event.tank_id || "tank_001";
       const status = event.status || "success";
@@ -1223,14 +1270,11 @@ function renderPendingFeedings(events) {
     .map((event) => {
       // Use feedtime for display (the scheduled feed time), not timestamp (when posted)
       const feedTimeValue = event.feedtime || event.timestamp || event.created_at;
-      const feedTime = feedTimeValue ? new Date(feedTimeValue) : null;
-      const formattedFeedTime = feedTime && !isNaN(feedTime)
-        ? feedTime.toLocaleString()
-        : "N/A";
+      const formattedFeedTime = formatSG(feedTimeValue);
       const quantity = event.feed_quantity_g ?? event.quantity_grams ?? event.quantity ?? "N/A";
       const status = event.status || "pending";
       const tankId = event.tank_id || "tank_001";
-      const timestampValue = event.timestamp || event.created_at;
+      const timestampValue = event.timestamp || event.created_at || feedTimeValue;
 
       let statusClass = "pending";
       if (status === "success") statusClass = "success";
@@ -1245,10 +1289,10 @@ function renderPendingFeedings(events) {
           <td><span id="qty-${encodedTimestamp}">${quantity}g</span></td>
           <td><span class="status-badge ${statusClass}">${status}</span></td>
           <td class="actions-cell">
-            <button class="btn-action btn-edit" onclick="editPendingFeeding('${feedTimeValue}', '${tankId}', ${quantity})" title="Edit">
+            <button class="btn-action btn-edit" onclick="editPendingFeeding('${feedTimeValue}', '${tankId}', ${quantity}, '${timestampValue}')" title="Edit">
               <i class="fas fa-edit"></i>
             </button>
-            <button class="btn-action btn-delete" onclick="deletePendingFeeding('${feedTimeValue}', '${tankId}')" title="Delete">
+            <button class="btn-action btn-delete" onclick="deletePendingFeeding('${timestampValue}', '${tankId}')" title="Delete">
               <i class="fas fa-trash"></i>
             </button>
           </td>
@@ -1263,7 +1307,7 @@ function renderPendingFeedings(events) {
 /**
  * Edit pending feeding
  */
-function editPendingFeeding(timestamp, tankId, currentQty) {
+function editPendingFeeding(timestamp, tankId, currentQty, originalTimestamp) {
   // Open modal and populate with current values
   const modal = document.getElementById("editPendingModal");
   const timeInput = document.getElementById("editFeedingTime");
@@ -1274,9 +1318,9 @@ function editPendingFeeding(timestamp, tankId, currentQty) {
   if (!modal || !timeInput || !qtyInput) return;
   
   // Set current values
-  timeInput.value = timestamp.slice(0, 16); // YYYY-MM-DDTHH:mm
+  timeInput.value = formatSGForInput(timestamp);
   qtyInput.value = currentQty;
-  originalTimestampInput.value = timestamp;
+  originalTimestampInput.value = originalTimestamp || timestamp;
   tankIdInput.value = tankId;
   
   // Show modal
@@ -1410,7 +1454,7 @@ function deletePendingFeeding(timestamp, tankId) {
   
   // Show feeding details
   if (detailsEl) {
-    const formattedTime = new Date(timestamp).toLocaleString();
+    const formattedTime = formatSG(timestamp);
     detailsEl.textContent = `Scheduled for: ${formattedTime}`;
   }
   
