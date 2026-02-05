@@ -804,7 +804,30 @@ async function predictAmmonia(payload) {
     }
 
     const data = await response.json();
-    return parseFloat(data.prediction_ammonia) || 0;
+    const rawPrediction = parseFloat(data.prediction_ammonia) || 0;
+    
+    // Calculate dynamic correction factor inversely proportional to feed amount
+    // At 1g feed: correction = 0.5
+    // At 10g+ feed: correction = 0.1
+    // Linear interpolation between 1g and 10g
+    const feedAmount = payload.feed_quantity_g || 1;
+    let correction;
+    
+    if (feedAmount <= 1) {
+      correction = 0.5;
+    } else if (feedAmount >= 10) {
+      correction = 0.1;
+    } else {
+      // Linear interpolation: correction = 0.5 - ((feed - 1) / 9) * 0.4
+      correction = 0.5 - ((feedAmount - 1) / 9) * 0.4;
+    }
+    
+    // Apply correction and ensure non-negative result
+    const correctedPrediction = Math.max(0, rawPrediction - correction);
+    
+    console.log(`📊 Prediction: raw=${rawPrediction.toFixed(3)}, correction=${correction.toFixed(3)}, corrected=${correctedPrediction.toFixed(3)}`);
+    
+    return correctedPrediction;
   } catch (error) {
     console.error("❌ Ammonia prediction API failed:", error);
     throw error;
