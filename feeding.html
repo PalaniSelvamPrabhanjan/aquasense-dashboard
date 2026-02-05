@@ -52,16 +52,19 @@
                 <div class="prediction-panel-standalone">
                     <h3>Predicted End-of-Day Ammonia</h3>
                     <div class="prediction-display">
-                        <div class="prediction-value" id="predictedAmmonia">0.48</div>
+                        <div class="prediction-value" id="predictedAmmonia">--</div>
                         <span class="prediction-unit">ppm</span>
                     </div>
                     <div class="prediction-status" id="predictionStatus">
-                        <span class="status-indicator safe"></span>
-                        <span class="status-text">Safe</span>
+                        <span class="status-indicator"></span>
+                        <span class="status-text">--</span>
                     </div>
+                    <button type="button" class="btn-predict-ammonia" id="predictAmmoniaBtn" onclick="onPredictAmmoniaClick()">
+                        <i class="fas fa-flask"></i> Predict End-of-Day Ammonia
+                    </button>
                     <p class="prediction-note">
                         <i class="fas fa-info-circle"></i>
-                        Prediction model placeholder - SageMaker integration pending
+                        Click the button above to calculate ammonia prediction
                     </p>
                 </div>
             </div>

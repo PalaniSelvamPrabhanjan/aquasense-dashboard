@@ -43,6 +43,15 @@ const ALERT_THRESHOLDS = {
   waterLevel: { percentageOfTarget: 0.8, label: "Water Level" },
 };
 
+// Ammonia prediction API endpoint
+const AMMONIA_PREDICTION_API = "https://lhzz7dph64.execute-api.ap-southeast-2.amazonaws.com/predict";
+
+// Ammonia status thresholds (mg/L)
+const AMMONIA_STATUS_THRESHOLDS = {
+  healthy: 0.25,
+  warning: 0.5,
+};
+
 /**
  * Detect current page based on loaded sections
  */
@@ -77,6 +86,12 @@ document.addEventListener("DOMContentLoaded", function () {
   
   initializeApplication();
   setupFeederForm();
+  
+  // Bind predict ammonia button event listener
+  const predictAmmoniaBtn = document.getElementById("predictAmmoniaBtn");
+  if (predictAmmoniaBtn) {
+    predictAmmoniaBtn.addEventListener("click", onPredictAmmoniaClick);
+  }
   
   // Bind Settings button event listeners (remove inline onclick handlers)
   document.querySelectorAll(".btn-settings").forEach(btn => {
@@ -765,6 +780,165 @@ function showFeederMessage(text, type) {
 }
 
 /**
+ * Ammonia Prediction Functions
+ */
+
+/**
+ * Fetch ammonia prediction from API
+ * @param {Object} payload - Prediction payload
+ * @returns {Promise<number>} Predicted ammonia value
+ */
+async function predictAmmonia(payload) {
+  try {
+    const response = await fetch(AMMONIA_PREDICTION_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API error ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    return parseFloat(data.prediction_ammonia) || 0;
+  } catch (error) {
+    console.error("❌ Ammonia prediction API failed:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get ammonia status and CSS class based on predicted value
+ * @param {number} prediction - Predicted ammonia level (mg/L)
+ * @returns {Object} { status, className }
+ */
+function getAmmoniaStatus(prediction) {
+  if (prediction < AMMONIA_STATUS_THRESHOLDS.healthy) {
+    return {
+      status: "Healthy range",
+      className: "healthy",
+    };
+  } else if (prediction < AMMONIA_STATUS_THRESHOLDS.warning) {
+    return {
+      status: "Elevated — monitor closely",
+      className: "warning",
+    };
+  } else {
+    return {
+      status: "Very high — toxic risk to fish",
+      className: "danger",
+    };
+  }
+}
+
+/**
+ * Click handler for "Predict End-of-Day Ammonia" button
+ */
+async function onPredictAmmoniaClick() {
+  const btn = document.getElementById("predictAmmoniaBtn");
+  const profile = window.currentProfile || {};
+  const feederQtyInput = document.getElementById("feederQty");
+
+  // Validate prerequisites
+  if (!profile.tank_volume_liters && !profile.volume) {
+    alert("❌ Tank profile not loaded. Please refresh the page.");
+    return;
+  }
+
+  if (!feederQtyInput || !feederQtyInput.value) {
+    alert("⚠️ Please enter a feeding quantity first to make a prediction.");
+    return;
+  }
+
+  // Disable button and show loading state
+  btn.disabled = true;
+  btn.textContent = "Predicting…";
+  btn.classList.add("loading");
+
+  try {
+    // Build payload from existing form data and tank profile
+    const tankVolume = profile.tank_volume_liters ?? profile.volume ?? 0;
+    const feedQty = parseFloat(feederQtyInput.value);
+
+    const payload = {
+      tank_volume_liters: parseInt(tankVolume, 10),
+      fish_small: parseInt(profile.fish_small ?? profile.fish_count?.small ?? 0, 10),
+      fish_medium: parseInt(profile.fish_medium ?? profile.fish_count?.medium ?? 0, 10),
+      fish_large: parseInt(profile.fish_large ?? profile.fish_count?.large ?? 0, 10),
+      fish_xlarge: parseInt(profile.fish_xlarge ?? profile.fish_count?.extra_large ?? 0, 10),
+      feed_quantity_g: feedQty,
+    };
+
+    console.log("📤 Sending ammonia prediction payload:", payload);
+
+    // Call the prediction API
+    const prediction = await predictAmmonia(payload);
+
+    // Get status based on prediction
+    const { status, className } = getAmmoniaStatus(prediction);
+
+    // Update UI elements
+    const predictedAmmoniaEl = document.getElementById("predictedAmmonia");
+    const predictionStatusEl = document.getElementById("predictionStatus");
+
+    if (predictedAmmoniaEl) {
+      predictedAmmoniaEl.textContent = prediction.toFixed(3);
+    }
+
+    if (predictionStatusEl) {
+      // Update status text
+      const statusTextEl = predictionStatusEl.querySelector(".status-text");
+      if (statusTextEl) {
+        statusTextEl.textContent = status;
+      }
+
+      // Update status indicator with appropriate class
+      const statusIndicatorEl = predictionStatusEl.querySelector(".status-indicator");
+      if (statusIndicatorEl) {
+        statusIndicatorEl.className = `status-indicator ${className}`;
+      }
+
+      // Apply status class to the parent for styling
+      predictionStatusEl.className = `prediction-status ${className}`;
+    }
+
+    console.log(`✅ Ammonia prediction: ${prediction.toFixed(3)} ppm - ${status}`);
+  } catch (error) {
+    console.error("❌ Prediction failed:", error);
+    alert(`❌ Prediction failed: ${error.message}`);
+
+    // Reset UI to show error state
+    const predictedAmmoniaEl = document.getElementById("predictedAmmonia");
+    const predictionStatusEl = document.getElementById("predictionStatus");
+
+    if (predictedAmmoniaEl) {
+      predictedAmmoniaEl.textContent = "Error";
+    }
+
+    if (predictionStatusEl) {
+      const statusTextEl = predictionStatusEl.querySelector(".status-text");
+      if (statusTextEl) {
+        statusTextEl.textContent = "Prediction failed";
+      }
+      const statusIndicatorEl = predictionStatusEl.querySelector(".status-indicator");
+      if (statusIndicatorEl) {
+        statusIndicatorEl.className = "status-indicator danger";
+      }
+      predictionStatusEl.className = "prediction-status danger";
+    }
+  } finally {
+    // Re-enable button and restore label
+    btn.disabled = false;
+    btn.textContent = "Predict End-of-Day Ammonia";
+    btn.classList.remove("loading");
+  }
+}
+
+/**
  * Save tank settings via API
  */
 async function saveSettings(event) {
@@ -1418,5 +1592,6 @@ window.deletePendingFeeding = deletePendingFeeding;
 window.closeEditPendingModal = closeEditPendingModal;
 window.closeDeletePendingModal = closeDeletePendingModal;
 window.confirmDeletePending = confirmDeletePending;
+window.onPredictAmmoniaClick = onPredictAmmoniaClick;
 
 console.log("AquaScope Dashboard JavaScript loaded successfully");
