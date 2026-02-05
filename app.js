@@ -134,8 +134,8 @@ document.addEventListener("DOMContentLoaded", function () {
  */
 async function initializeApplication() {
   try {
-    // Load tank profile on overview and monitoring pages
-    if (currentPage === "overview" || currentPage === "monitoring") {
+    // Load tank profile on overview, monitoring, and feeding pages (needed for ammonia prediction)
+    if (currentPage === "overview" || currentPage === "monitoring" || currentPage === "feeding") {
       await loadTankProfile();
     }
 
