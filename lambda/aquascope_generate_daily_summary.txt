@@ -1,0 +1,144 @@
+import os
+import boto3
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from boto3.dynamodb.conditions import Key
+
+dynamodb = boto3.resource("dynamodb")
+
+READINGS_TABLE = os.environ["READINGS_TABLE"]
+FEEDING_TABLE  = os.environ["FEEDING_TABLE"]
+PROFILE_TABLE  = os.environ["PROFILE_TABLE"]
+SUMMARY_TABLE  = os.environ["SUMMARY_TABLE"]
+
+DEVICE_ID = os.environ["DEVICE_ID"]   # e.g. aquasense_01
+TANK_ID   = os.environ["TANK_ID"]     # e.g. tank_001
+TZ_NAME   = os.environ.get("TIMEZONE", "Asia/Singapore")
+
+readings_tbl = dynamodb.Table(READINGS_TABLE)
+feeding_tbl  = dynamodb.Table(FEEDING_TABLE)
+profile_tbl  = dynamodb.Table(PROFILE_TABLE)
+summary_tbl  = dynamodb.Table(SUMMARY_TABLE)
+
+
+def iso_no_tz(dt: datetime) -> str:
+    """Format as ISO string without timezone offset (matches your AquaSense_Readings timestamps)."""
+    return dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def iso_with_offset(dt: datetime) -> str:
+    """Format as ISO string with offset (matches your feeding_events timestamp style, e.g. +00:00)."""
+    # Example: 2026-02-05T19:57:11+00:00
+    return dt.isoformat(timespec="seconds")
+
+
+def get_last_reading_for_day_sgt(day_sgt: datetime):
+    """
+    Query last AquaSense_Readings item for the SGT day.
+    Assumption: readings_tbl timestamp is lexicographically sortable ISO like 2026-02-05T17:58:56...
+    and represents SGT time (as per your table display).
+    """
+    start = day_sgt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end   = day_sgt.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    resp = readings_tbl.query(
+        KeyConditionExpression=Key("device_id").eq(DEVICE_ID) &
+                             Key("timestamp").between(iso_no_tz(start), iso_no_tz(end)),
+        ScanIndexForward=False,   # descending by timestamp
+        Limit=1
+    )
+
+    items = resp.get("Items", [])
+    return items[0] if items else None
+
+
+def get_last_feeding_for_day_sgt(day_sgt: datetime):
+    """
+    Query last feeding event item for the SGT day.
+    Your feeding_events sort key is 'timestamp' which looks like UTC (+00:00) in the screenshot.
+    So we convert SGT day boundaries -> UTC boundaries and query in UTC.
+    """
+    tz = ZoneInfo(TZ_NAME)
+
+    start_sgt = day_sgt.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=tz)
+    end_sgt   = day_sgt.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=tz)
+
+    start_utc = start_sgt.astimezone(timezone.utc)
+    end_utc   = end_sgt.astimezone(timezone.utc)
+
+    resp = feeding_tbl.query(
+        KeyConditionExpression=Key("tank_id").eq(TANK_ID) &
+                             Key("timestamp").between(iso_with_offset(start_utc), iso_with_offset(end_utc)),
+        ScanIndexForward=False,
+        Limit=1
+    )
+
+    items = resp.get("Items", [])
+    return items[0] if items else None
+
+
+def get_tank_profile():
+    resp = profile_tbl.get_item(Key={"tank_id": TANK_ID})
+    return resp.get("Item")
+
+
+def lambda_handler(event, context):
+    tz = ZoneInfo(TZ_NAME)
+    now_sgt = datetime.now(tz)
+
+    # This lambda runs at 00:05 SGT, so we summarize "yesterday"
+    day_sgt = (now_sgt - timedelta(days=1)).replace(tzinfo=None)  # keep as naive for reading-table compare
+    date_str = day_sgt.strftime("%Y-%m-%d")  # daily_summary sort key
+
+    # 1) last reading (required)
+    last_reading = get_last_reading_for_day_sgt(day_sgt)
+    if not last_reading:
+        print(f"SKIP: No sensor readings for {date_str} (device_id={DEVICE_ID}).")
+        return {"ok": True, "skipped": True, "reason": "no_sensor_reading", "date": date_str}
+
+    # 2) last feeding (optional -> 0)
+    last_feeding = get_last_feeding_for_day_sgt(day_sgt)
+    feed_qty = 0
+    if last_feeding and "feed_quantity_g" in last_feeding:
+        try:
+            feed_qty = float(last_feeding["feed_quantity_g"])
+        except Exception:
+            feed_qty = 0
+
+    # 3) tank profile (required fields for ML features)
+    profile = get_tank_profile() or {}
+    tank_volume = profile.get("tank_volume_liters")
+    fish_small = profile.get("fish_small", 0)
+    fish_medium = profile.get("fish_medium", 0)
+    fish_large = profile.get("fish_large", 0)
+    fish_xlarge = profile.get("fish_xlarge", 0)
+
+    # Build summary item (UPsert: PutItem overwrites same tank_id+date)
+    summary_item = {
+        "tank_id": TANK_ID,
+        "date": date_str,
+
+        # summary columns (your requirement)
+        "timestamp": last_reading.get("timestamp"),   # last reading timestamp of the day
+        "ammonia": last_reading.get("ammonia"),
+        "feed_quantity_g": feed_qty,
+
+        # added features for SageMaker
+        "tank_volume_liters": tank_volume,
+        "fish_small": fish_small,
+        "fish_medium": fish_medium,
+        "fish_large": fish_large,
+        "fish_xlarge": fish_xlarge,
+
+        # useful debug metadata
+        "device_id": DEVICE_ID,
+        "source_feeding_timestamp": last_feeding.get("timestamp") if last_feeding else None,
+    }
+
+    # Clean None values (DynamoDB does not allow NULL unless explicitly used with DynamoDB JSON)
+    summary_item = {k: v for k, v in summary_item.items() if v is not None}
+
+    summary_tbl.put_item(Item=summary_item)
+
+    print(f"OK: Upserted daily summary for {TANK_ID} {date_str}: {summary_item}")
+    return {"ok": True, "date": date_str, "tank_id": TANK_ID, "written": True}

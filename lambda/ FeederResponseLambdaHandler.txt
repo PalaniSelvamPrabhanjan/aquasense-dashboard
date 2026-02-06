@@ -1,0 +1,116 @@
+import os
+import boto3
+from datetime import datetime, timezone
+from decimal import Decimal
+from botocore.exceptions import ClientError
+
+# ---------- Config ----------
+AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+TABLE_NAME = os.environ.get("FEEDING_EVENTS_TABLE", "aquascope_feeding_events")
+
+dynamodb_resource = boto3.resource("dynamodb", region_name=AWS_REGION)
+dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION)
+
+table = dynamodb_resource.Table(TABLE_NAME)
+
+# ---------- Helpers ----------
+def _to_decimal_if_number(x):
+    """Convert int/float to Decimal for DynamoDB; keep strings as-is."""
+    if isinstance(x, (int, float)):
+        return Decimal(str(x))
+    return x
+
+def _debug_describe_table():
+    """Hard proof that Lambda can see the table in this region."""
+    print("AWS_REGION =", AWS_REGION)
+    print("TABLE_NAME =", TABLE_NAME)
+    resp = dynamodb_client.describe_table(TableName=TABLE_NAME)
+    print("TABLE_ARN =", resp["Table"]["TableArn"])
+    keys = [(k["AttributeName"], k["KeyType"]) for k in resp["Table"]["KeySchema"]]
+    print("KEY_SCHEMA =", keys)
+
+# ---------- Lambda ----------
+def lambda_handler(event, context):
+    """
+    Expected IoT payload example:
+    {
+      "tank_id": "tank_001",
+      "feedtime": "2026-02-06T02:44:00+08:00",
+      "feed_quantity_g": 3.5,
+      "timestamp": "2026-02-05T18:43:32+00:00",
+      "status": "Success"
+    }
+
+    DynamoDB keys assumed:
+      PK: tank_id (S)
+      SK: timestamp (S)
+    """
+    print("Incoming event:", event)
+
+    # 1) Confirm table exists in this region (super useful while debugging)
+    try:
+        _debug_describe_table()
+    except ClientError as e:
+        print("describe_table failed:", e)
+        return {
+            "statusCode": 500,
+            "body": f"Table not found or wrong region/name. AWS_REGION={AWS_REGION}, TABLE_NAME={TABLE_NAME}"
+        }
+
+    # 2) Required fields
+    tank_id = event.get("tank_id")
+    ts = event.get("timestamp")   # should be ISO string
+    status = event.get("status")
+
+    if not tank_id or not ts or not status:
+        return {
+            "statusCode": 400,
+            "body": "Missing required fields: tank_id / timestamp / status"
+        }
+
+    # 3) Optional fields
+    feedtime = event.get("feedtime")
+    feed_qty = event.get("feed_quantity_g")
+
+    # 4) Build update (REMOVED status_updated_at)
+    expr_attr_names = {"#s": "status"}
+    expr_attr_values = {
+        ":s": str(status),
+    }
+    update_parts = ["#s = :s"]
+
+    if feedtime is not None:
+        update_parts.append("feedtime = :ft")
+        expr_attr_values[":ft"] = str(feedtime)
+
+    if feed_qty is not None:
+        update_parts.append("feed_quantity_g = :q")
+        expr_attr_values[":q"] = _to_decimal_if_number(feed_qty)
+
+    update_expr = "SET " + ", ".join(update_parts)
+
+    # 5) Update DynamoDB
+    try:
+        resp = table.update_item(
+            Key={
+                "tank_id": str(tank_id),
+                "timestamp": str(ts)
+            },
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_attr_names,
+            ExpressionAttributeValues=expr_attr_values,
+            ReturnValues="ALL_NEW",
+        )
+        print("Updated item:", resp.get("Attributes"))
+        return {
+            "statusCode": 200,
+            "body": "OK",
+            "updated_item": resp.get("Attributes", {})
+        }
+
+    except ClientError as e:
+        print("UpdateItem failed:", e)
+        return {
+            "statusCode": 500,
+            "body": f"UpdateItem failed. Check table key schema types (tank_id/timestamp). Error: {str(e)}"
+        }

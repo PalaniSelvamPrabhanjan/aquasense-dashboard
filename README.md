@@ -1,8 +1,8 @@
-# AquaSense Dashboard
+# AquaSense Dashboard  https://main.d1i67yfalxof2y.amplifyapp.com/index.html 
 
 A web-based IoT aquarium monitoring dashboard hosted on AWS Amplify, built as a single-page web application using HTML, CSS, and vanilla JavaScript.
 
-## 🌊 Project Overview
+## Project Overview
 
 AquaSense Dashboard provides real-time monitoring for smart aquarium systems. The application displays sensor data through interactive Chart.js line charts with time-based x-axis, allowing users to monitor water quality metrics across different time periods.
 
@@ -164,7 +164,6 @@ This project is developed for educational purposes as part of the AquaSense IoT 
 
 **Version**: 1.0.0  
 **Last Updated**: February 2026  
-**Built with**: ❤️ for aquarium enthusiasts
 
 
 

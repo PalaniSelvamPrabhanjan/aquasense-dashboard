@@ -1,0 +1,44 @@
+import json
+import os
+import boto3
+
+IOT_DATA_ENDPOINT = os.environ["IOT_DATA_ENDPOINT"]
+TABLE_NAME = os.environ.get("FEEDING_EVENTS_TABLE", "aquascope_feeding_events")
+TOPIC_PREFIX = os.environ.get("FEEDER_TOPIC_PREFIX", "aquasense")
+
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table(TABLE_NAME)
+
+iot = boto3.client("iot-data", endpoint_url=f"https://{IOT_DATA_ENDPOINT}")
+
+def lambda_handler(event, context):
+    # Scheduler Input payload
+    tank_id = event.get("tank_id")
+
+    # This MUST match what your FeedingEventsAPI put into Scheduler "Input"
+    event_ts = event.get("event_timestamp")        # DynamoDB sort key = timestamp
+    qty = event.get("feed_quantity_g")
+
+    # Optional if you added a feedtime column (not needed for MQTT if you want minimal payload)
+    feedtime = event.get("feedtime")
+
+    # Validate required fields
+    if not tank_id or not event_ts or qty is None:
+        print("Missing required fields:", event)
+        return {"ok": False, "error": "missing tank_id/event_timestamp/feed_quantity_g"}
+
+    topic = f"{TOPIC_PREFIX}/{tank_id}/feeder"
+
+    # MQTT payload: ONLY tank_id, timestamp, feed_quantity_g
+    msg = {
+        "tank_id": tank_id,
+        "timestamp": event_ts,
+        "feed_quantity_g": qty,
+        "feedtime": feedtime
+    }
+
+    # Publish to IoT Core MQTT
+    iot.publish(topic=topic, qos=0, payload=json.dumps(msg))
+
+    print("Published:", topic, msg, "| feedtime:", feedtime)
+    return {"ok": True, "topic": topic, "payload": msg}

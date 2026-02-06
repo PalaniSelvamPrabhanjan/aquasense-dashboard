@@ -1,48 +1,47 @@
-import json
 import boto3
 from decimal import Decimal
+from datetime import datetime, timezone
 
-# AWS clients/resources (created once per execution environment for efficiency)
 dynamodb = boto3.resource("dynamodb")
 sns = boto3.client("sns")
 
 TABLE_NAME = "AquaSense_Readings"
 TOPIC_ARN = "arn:aws:sns:ap-southeast-2:111810594268:AquaSense_Alerts"
-
 table = dynamodb.Table(TABLE_NAME)
 
-# Simple, explicit threshold values (easy to justify in report/demo)
+# Thresholds
 AMMONIA_ALERT_PPM = 0.25
+
 TEMP_MIN_C = 22.0
 TEMP_MAX_C = 30.0
 
+PH_MIN = 6.5
+PH_MAX = 7.5
+
 
 def _to_decimal(value) -> Decimal:
-    """
-    DynamoDB expects Decimal for numeric types.
-    Using str() avoids float binary rounding issues.
-    """
     return Decimal(str(value))
 
 
 def lambda_handler(event, context):
-    # Keep logs short but useful for debugging
     print("Incoming event:", event)
 
-    # Required fields (assume present since IoT payload format is controlled by us)
+    # Required
     device_id = event["device_id"]
-    timestamp = event["timestamp"]
 
-    # Normalise values (convert to float once)
+    # Generate timestamp as STRING because DynamoDB expects S
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Normalize
     temperature = float(event["temperature"])
     ph = float(event["ph"])
     ammonia = float(event["ammonia"])
     water_level = float(event["water_level"])
 
-    # 1) Store every reading (telemetry)
+    # 1) Store telemetry
     item = {
         "device_id": device_id,
-        "timestamp": timestamp,
+        "timestamp": timestamp,  # STRING key
         "temperature": _to_decimal(temperature),
         "ph": _to_decimal(ph),
         "ammonia": _to_decimal(ammonia),
@@ -52,7 +51,7 @@ def lambda_handler(event, context):
     table.put_item(Item=item)
     print(f"Saved reading: device_id={device_id}, timestamp={timestamp}")
 
-    # 2) Decide if we need to alert (only when something is out-of-range)
+    # 2) Alert logic
     issues = []
 
     if ammonia > AMMONIA_ALERT_PPM:
@@ -61,28 +60,29 @@ def lambda_handler(event, context):
     if temperature < TEMP_MIN_C or temperature > TEMP_MAX_C:
         issues.append(f"Temperature out of range: {temperature} °C (safe {TEMP_MIN_C}-{TEMP_MAX_C})")
 
-    # Add more later if you want (pH / water level), but B-grade is already met.
+    if ph < PH_MIN or ph > PH_MAX:
+        issues.append(f"pH out of range: {ph} (safe {PH_MIN}-{PH_MAX})")
 
     if issues:
         subject = f"AquaSense Alert - {device_id}"
-        message_lines = [
+        message = "\n".join([
             "AquaSense Alert",
             f"Device: {device_id}",
-            f"Time: {timestamp}",
+            f"Time (UTC): {timestamp}",
             "",
             "Detected issue(s):",
             *[f"- {x}" for x in issues],
             "",
             "Suggested actions:",
-            "- Check feeding amount (remove uneaten food)",
-            "- Check filter performance",
-            "- Consider a partial water change",
-        ]
+            "- If ammonia high: reduce feeding, remove uneaten food, check filter, partial water change",
+            "- If pH out of range: test with kit, consider gradual correction (avoid sudden swings)",
+            "- If temperature out of range: check heater/chiller/thermal regulator",
+        ])
 
         resp = sns.publish(
             TopicArn=TOPIC_ARN,
             Subject=subject,
-            Message="\n".join(message_lines),
+            Message=message,
         )
         print("Alert sent via SNS:", resp.get("MessageId"))
     else:

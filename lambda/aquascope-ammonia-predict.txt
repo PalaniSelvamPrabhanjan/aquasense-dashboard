@@ -1,0 +1,60 @@
+import os
+import json
+import boto3
+
+runtime = boto3.client("sagemaker-runtime", region_name=os.environ.get("AWS_REGION", "ap-southeast-2"))
+ENDPOINT_NAME = os.environ["ENDPOINT_NAME"]
+
+FEATURE_ORDER = [
+    "tank_volume_liters",
+    "fish_small",
+    "fish_medium",
+    "fish_large",
+    "fish_xlarge",
+    "feed_quantity_g",
+]
+
+def lambda_handler(event, context):
+    # --- Parse body (HTTP API sends body as string) ---
+    body = event.get("body", event)
+    if isinstance(body, str):
+        body = json.loads(body)
+
+    # --- Basic validation + CSV construction ---
+    try:
+        values = [body[k] for k in FEATURE_ORDER]
+    except KeyError as e:
+        return _resp(400, {"error": f"Missing field: {str(e)}", "required": FEATURE_ORDER})
+
+    csv_line = ",".join(str(v) for v in values)
+
+    # --- Invoke endpoint (built-in XGBoost expects text/csv) ---
+    r = runtime.invoke_endpoint(
+        EndpointName=ENDPOINT_NAME,
+        ContentType="text/csv",
+        Accept="text/csv",
+        Body=csv_line.encode("utf-8"),
+    )
+
+    prediction_str = r["Body"].read().decode("utf-8").strip()
+
+    # For single row, response is typically a single number string
+    try:
+        pred = float(prediction_str)
+    except:
+        pred = prediction_str
+
+    return _resp(200, {"prediction_ammonia": pred})
+
+def _resp(status, obj):
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            # CORS (allow Amplify site to call API)
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "content-type",
+            "Access-Control-Allow-Methods": "OPTIONS,POST"
+        },
+        "body": json.dumps(obj)
+    }

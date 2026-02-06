@@ -1,0 +1,344 @@
+import json
+import os
+import boto3
+from decimal import Decimal
+from datetime import datetime, timezone, timedelta
+from boto3.dynamodb.conditions import Key
+
+dynamodb = boto3.resource("dynamodb")
+scheduler = boto3.client("scheduler")
+
+# ----------------------------
+# Environment variables
+# ----------------------------
+TABLE_NAME = os.environ.get("FEEDING_EVENTS_TABLE", "aquascope_feeding_events")
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
+
+SCHEDULER_ROLE_ARN = os.environ.get("SCHEDULER_ROLE_ARN")      # REQUIRED for scheduling
+FEEDER_TARGET_ARN = os.environ.get("FEEDER_TARGET_ARN")        # REQUIRED for scheduling
+SCHEDULER_GROUP = os.environ.get("SCHEDULER_GROUP", "default")
+
+# Singapore timezone (UTC+8)
+LOCAL_TZ_OFFSET_HOURS = int(os.environ.get("LOCAL_TZ_OFFSET_HOURS", "8"))
+SG_TZ = timezone(timedelta(hours=LOCAL_TZ_OFFSET_HOURS))
+
+table = dynamodb.Table(TABLE_NAME)
+
+# ----------------------------
+# Helpers
+# ----------------------------
+def _resp(status, body=None, extra_headers=None):
+    headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+        "Access-Control-Allow-Headers": "content-type",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    return {"statusCode": status, "headers": headers, "body": json.dumps(body or {})}
+
+def _to_decimal(val):
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, (int, float)):
+        return Decimal(str(val))
+    return Decimal(str(val))
+
+def _parse_json_body(event):
+    raw = event.get("body") or "{}"
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+def _parse_iso_assume_sg(dt_str: str) -> datetime:
+    if not dt_str:
+        raise ValueError("Missing datetime string")
+    dt_str = dt_str.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(dt_str)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=SG_TZ)
+    return dt
+
+def _normalize_iso(dt_str: str) -> str:
+    """Normalize ISO WITH timezone offset (+08:00 if missing) and remove microseconds."""
+    dt = _parse_iso_assume_sg(dt_str).replace(microsecond=0)
+    return dt.isoformat()
+
+def _safe_schedule_name(tank_id: str, timestamp_iso: str) -> str:
+    """
+    Scheduler name limit is 64 chars.
+    We keep schedule name derived from the DynamoDB key (tank_id + timestamp),
+    so it's stable even if feedtime changes.
+    """
+    safe_ts = (
+        timestamp_iso.replace(":", "")
+        .replace(".", "")
+        .replace("+", "p")
+        .replace("-", "")
+        .replace("T", "t")
+    )
+    name = f"feed-{tank_id}-{safe_ts}"
+    return name[:64]
+
+def _create_one_time_schedule(schedule_name: str, run_at_iso: str, payload: dict):
+    if not SCHEDULER_ROLE_ARN or not FEEDER_TARGET_ARN:
+        raise RuntimeError("Missing env vars: SCHEDULER_ROLE_ARN and/or FEEDER_TARGET_ARN")
+
+    dt = _parse_iso_assume_sg(run_at_iso)
+
+    # at() must NOT include timezone when using ScheduleExpressionTimezone
+    at_str = dt.strftime("%Y-%m-%dT%H:%M:%S")
+    schedule_expression = f"at({at_str})"
+
+    scheduler.create_schedule(
+        Name=schedule_name,
+        GroupName=SCHEDULER_GROUP,
+        ScheduleExpression=schedule_expression,
+        ScheduleExpressionTimezone="Asia/Singapore",
+        FlexibleTimeWindow={"Mode": "OFF"},
+        Target={
+            "Arn": FEEDER_TARGET_ARN,
+            "RoleArn": SCHEDULER_ROLE_ARN,
+            "Input": json.dumps(payload),
+        },
+        State="ENABLED",
+    )
+
+def _delete_schedule_if_exists(schedule_name: str):
+    try:
+        scheduler.delete_schedule(Name=schedule_name, GroupName=SCHEDULER_GROUP)
+    except Exception:
+        pass
+
+def _decimal_to_float_in_obj(obj):
+    if isinstance(obj, list):
+        return [_decimal_to_float_in_obj(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _decimal_to_float_in_obj(v) for k, v in obj.items()}
+    if isinstance(obj, Decimal):
+        return float(obj)
+    return obj
+
+# ----------------------------
+# Lambda handler
+# ----------------------------
+def lambda_handler(event, context):
+    method = (
+        event.get("requestContext", {})
+        .get("http", {})
+        .get("method")
+        or event.get("httpMethod")
+    )
+
+    if method == "OPTIONS":
+        return _resp(200, {"ok": True})
+
+    # ----------------------------
+    # GET
+    # ----------------------------
+    if method == "GET":
+        qs = event.get("queryStringParameters") or {}
+        tank_id = qs.get("tank_id")
+        if not tank_id:
+            return _resp(400, {"error": "Missing query param: tank_id"})
+
+        limit = int(qs.get("limit", 20))
+        start_ts = qs.get("start_ts")
+        end_ts = qs.get("end_ts")
+
+        key_expr = Key("tank_id").eq(tank_id)
+        if start_ts and end_ts:
+            start_norm = _normalize_iso(start_ts)
+            end_norm = _normalize_iso(end_ts)
+            key_expr = key_expr & Key("timestamp").between(start_norm, end_norm)
+
+        r = table.query(
+            KeyConditionExpression=key_expr,
+            ScanIndexForward=False,
+            Limit=limit,
+        )
+
+        items = _decimal_to_float_in_obj(r.get("Items", []))
+        return _resp(200, {"tank_id": tank_id, "count": len(items), "items": items})
+
+    # ----------------------------
+    # POST (create)
+    # ----------------------------
+    if method == "POST":
+        body = _parse_json_body(event)
+        if body is None:
+            return _resp(400, {"error": "Invalid JSON body"})
+
+        tank_id = body.get("tank_id")
+        timestamp_raw = body.get("timestamp")   # DynamoDB SK (unique)
+        feedtime_raw = body.get("feedtime")     # actual run time
+        qty = body.get("feed_quantity_g")
+        status = body.get("status")
+
+        if not tank_id or not timestamp_raw:
+            return _resp(400, {"error": "Missing fields: tank_id and timestamp"})
+        if not feedtime_raw:
+            return _resp(400, {"error": "Missing field: feedtime"})
+        if qty is None:
+            return _resp(400, {"error": "Missing field: feed_quantity_g"})
+        if not status:
+            return _resp(400, {"error": "Missing field: status"})
+
+        timestamp = _normalize_iso(timestamp_raw)
+        feedtime = _normalize_iso(feedtime_raw)
+
+        item = {
+            "tank_id": tank_id,
+            "timestamp": timestamp,
+            "feedtime": feedtime,
+            "feed_quantity_g": _to_decimal(qty),
+            "status": str(status).upper(),
+        }
+
+        table.put_item(Item=item)
+
+        if item["status"] == "PENDING":
+            schedule_name = _safe_schedule_name(tank_id, timestamp)
+            payload = {
+                "tank_id": tank_id,
+                "event_timestamp": timestamp,           # key to update/delete
+                "feed_quantity_g": float(_to_decimal(qty)),
+                "feedtime": feedtime,                   # optional for device display
+            }
+            _create_one_time_schedule(schedule_name, feedtime, payload)
+
+        return _resp(200, {
+            "message": "Saved feeding event" + (" + scheduled" if item["status"] == "PENDING" else ""),
+            "tank_id": tank_id,
+            "timestamp": timestamp,
+            "feedtime": feedtime,
+            "feed_quantity_g": float(item["feed_quantity_g"]),
+            "status": item["status"],
+        })
+
+    # ----------------------------
+    # PUT/PATCH (update)
+    # ----------------------------
+    if method in ("PUT", "PATCH"):
+        body = _parse_json_body(event)
+        if body is None:
+            return _resp(400, {"error": "Invalid JSON body"})
+
+        tank_id = body.get("tank_id")
+        timestamp_raw = body.get("timestamp")
+        if not tank_id or not timestamp_raw:
+            return _resp(400, {"error": "Missing fields: tank_id and timestamp"})
+
+        timestamp = _normalize_iso(timestamp_raw)
+
+        old = table.get_item(Key={"tank_id": tank_id, "timestamp": timestamp}).get("Item")
+        if not old:
+            return _resp(404, {"error": "Item not found", "tank_id": tank_id, "timestamp": timestamp})
+
+        updates = {}
+        if body.get("feed_quantity_g") is not None:
+            updates["feed_quantity_g"] = _to_decimal(body.get("feed_quantity_g"))
+        if body.get("status") is not None:
+            updates["status"] = str(body.get("status")).upper()
+        if body.get("feedtime") is not None:
+            updates["feedtime"] = _normalize_iso(body.get("feedtime"))
+
+        if not updates:
+            return _resp(400, {"error": "No updatable fields provided"})
+
+        expr_names = {}
+        expr_values = {}
+        set_parts = []
+        for k, v in updates.items():
+            nk = f"#{k}"
+            vk = f":{k}"
+            expr_names[nk] = k
+            expr_values[vk] = v
+            set_parts.append(f"{nk} = {vk}")
+
+        r = table.update_item(
+            Key={"tank_id": tank_id, "timestamp": timestamp},
+            UpdateExpression="SET " + ", ".join(set_parts),
+            ExpressionAttributeNames=expr_names,
+            ExpressionAttributeValues=expr_values,
+            ReturnValues="ALL_NEW",
+        )
+
+        updated = r.get("Attributes", {})
+        updated_clean = _decimal_to_float_in_obj(updated)
+
+        old_status = str(old.get("status", "")).upper()
+        new_status_u = str(updated.get("status", "")).upper()
+        schedule_name = _safe_schedule_name(tank_id, timestamp)
+
+        # If it WAS pending and becomes NOT pending => delete schedule
+        if old_status == "PENDING" and new_status_u != "PENDING":
+            _delete_schedule_if_exists(schedule_name)
+
+        # If it IS pending (either stayed pending or became pending), ensure schedule matches latest feedtime/qty
+        if new_status_u == "PENDING":
+            # Always recreate schedule to reflect latest feedtime/qty
+            _delete_schedule_if_exists(schedule_name)
+
+            run_at = updated.get("feedtime") or old.get("feedtime")
+            qty_val = updated.get("feed_quantity_g") or old.get("feed_quantity_g")
+
+            if not run_at:
+                return _resp(400, {"error": "Cannot schedule without feedtime"})
+            if qty_val is None:
+                return _resp(400, {"error": "Cannot schedule without feed_quantity_g"})
+
+            payload = {
+                "tank_id": tank_id,
+                "event_timestamp": timestamp,
+                "feed_quantity_g": float(qty_val) if isinstance(qty_val, Decimal) else qty_val,
+                "feedtime": run_at,
+            }
+            _create_one_time_schedule(schedule_name, run_at, payload)
+
+        return _resp(200, {
+            "message": "Updated feeding event",
+            "tank_id": tank_id,
+            "timestamp": timestamp,
+            "item": updated_clean,
+        })
+
+    # ----------------------------
+    # DELETE
+    # ----------------------------
+    if method == "DELETE":
+        qs = event.get("queryStringParameters") or {}
+        tank_id = qs.get("tank_id")
+        timestamp_raw = qs.get("timestamp")
+
+        if not tank_id or not timestamp_raw:
+            body = _parse_json_body(event) or {}
+            tank_id = tank_id or body.get("tank_id")
+            timestamp_raw = timestamp_raw or body.get("timestamp")
+
+        if not tank_id or not timestamp_raw:
+            return _resp(400, {"error": "Missing tank_id and timestamp"})
+
+        timestamp = _normalize_iso(timestamp_raw)
+
+        schedule_name = _safe_schedule_name(tank_id, timestamp)
+        _delete_schedule_if_exists(schedule_name)
+
+        r = table.delete_item(
+            Key={"tank_id": tank_id, "timestamp": timestamp},
+            ReturnValues="ALL_OLD",
+        )
+
+        deleted = _decimal_to_float_in_obj(r.get("Attributes") or {})
+        return _resp(200, {
+            "message": "Deleted feeding event",
+            "tank_id": tank_id,
+            "timestamp": timestamp,
+            "deleted": deleted,
+        })
+
+    return _resp(405, {"error": f"Method not allowed: {method}"})
